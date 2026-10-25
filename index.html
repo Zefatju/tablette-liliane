@@ -1,0 +1,1067 @@
+<!DOCTYPE html>
+<html lang='fr'>
+<head>
+<meta charset='utf-8'>
+<meta name='viewport' content='width=device-width, initial-scale=1, user-scalable=no'>
+<meta name='color-scheme' content='dark'>
+<title>Tableau de bord</title>
+
+<!--
+=====================================================================
+  TABLEAU DE BORD POUR TABLETTE (Fully Kiosk Browser)
+  ---------------------------------------------------------------
+  Ce fichier unique contient tout : l'apparence (CSS), le contenu
+  (HTML) et le fonctionnement (JavaScript).
+
+  OÙ MODIFIER QUOI ?
+    - Couleurs et taille générale ......... section 1 du CSS (en haut)
+    - Boutons, rappels, nuit, durées ...... section 1 du JavaScript : CONFIG
+    - Le reste ............................ à ne toucher qu'en connaissance de cause
+
+  COMMENT ÇA MARCHE ?
+    1. La page lit l'agenda Google via un petit relais (Google Apps Script).
+    2. Elle garde une copie de l'agenda : si Internet tombe, l'écran
+       et les rappels continuent de fonctionner.
+    3. Elle affiche l'heure, l'agenda, les boutons, et déclenche les rappels.
+
+  DEUX FAÇONS DE RECEVOIR L'AGENDA (choisies par l'adresse de départ) :
+    a) Relais Google Apps Script :
+         https://VOTRE-COMPTE.github.io/tablette/?id=XXXX&cle=YYYY
+    b) Fichier agenda.json fabriqué par un petit serveur (agenda_vers_json.py) :
+         https://VOTRE-SERVEUR/tablette/              (agenda.json au même endroit)
+         ou ...?json=ADRESSE_DU_FICHIER_JSON
+  Dans les deux cas, aucun mot de passe n'est écrit dans ce fichier.
+
+  COMPATIBLE avec Fully Kiosk Browser ET avec FreeKiosk (voir les guides).
+
+  VERSION : voir la constante VERSION dans le JavaScript.
+=====================================================================
+-->
+
+<style>
+/* =====================================================================
+   1. COULEURS ET TAILLES  (modifiez ici l'apparence générale)
+   ===================================================================== */
+:root {
+  --fond:      #000000;   /* fond d'écran : noir pur, ménage l'écran AMOLED */
+  --panneau:   #12171f;   /* fond du cadre de l'agenda */
+  --texte:     #f4efe6;   /* texte principal (blanc légèrement chaud) */
+  --discret:   #a3acb9;   /* texte secondaire */
+  --accent:    #f2c14e;   /* heure et titres de jours */
+  --trait:     #2a3240;   /* fines séparations */
+  --alerte:    #ff6b5e;   /* rappel et avertissements */
+  --echelle:   1;         /* 1 = normal ; 1.15 = tout 15 % plus grand ; 0.9 = plus petit */
+
+  /* Unité de base : proportionnelle à l'écran. Tous les textes en dépendent. */
+  --u: calc(min(1vw, 1.6vh) * var(--echelle));
+}
+
+/* =====================================================================
+   2. STRUCTURE GÉNÉRALE
+   ===================================================================== */
+* { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+
+html, body {
+  margin: 0; height: 100%;
+  background: var(--fond); color: var(--texte);
+  font-family: Roboto, 'Segoe UI', 'Helvetica Neue', Arial, sans-serif;
+  overflow: hidden;
+  -webkit-user-select: none; user-select: none;      /* évite les sélections de texte accidentelles */
+}
+
+/* Deux colonnes : agenda à gauche, heure + boutons à droite */
+.page {
+  display: grid; grid-template-columns: 1fr 1fr;
+  gap: calc(var(--u) * 2.5);
+  height: 100%; padding: calc(var(--u) * 2.5);
+  transition: filter 1.5s, transform 1s;
+}
+
+/* Mode nuit : tout est assombri (la classe « nuit » est posée par le JavaScript) */
+body.nuit .page { filter: brightness(var(--luminosite-nuit, 0.25)); }
+
+/* =====================================================================
+   3. COLONNE GAUCHE : AGENDA
+   ===================================================================== */
+#agenda {
+  background: var(--panneau); border-radius: calc(var(--u) * 2);
+  padding: calc(var(--u) * 2.5);
+  display: flex; flex-direction: column; min-height: 0;
+}
+#agenda h2 { margin: 0; font-size: calc(var(--u) * 3.2); font-weight: 700; color: var(--accent); }
+
+/* Bandeau « prochain rendez-vous » */
+#prochain {
+  margin-top: calc(var(--u) * 1.5);
+  padding: calc(var(--u) * 1.4) calc(var(--u) * 2);
+  border-radius: calc(var(--u) * 1.4);
+  background: #2b2412; border: calc(var(--u) * .25) solid var(--accent);
+  font-size: calc(var(--u) * 3); font-weight: 600; line-height: 1.25;
+}
+#prochain[hidden] { display: none; }
+
+/* Liste des rendez-vous */
+#liste { flex: 1; overflow: hidden; min-height: 0; }
+.jour {
+  font-size: calc(var(--u) * 2.6); font-weight: 700; color: var(--accent);
+  margin: calc(var(--u) * 2) 0 calc(var(--u) * .5);
+  padding-bottom: calc(var(--u) * .4); border-bottom: calc(var(--u) * .15) solid var(--trait);
+}
+.rdv { display: flex; align-items: baseline; gap: calc(var(--u) * 2); padding: calc(var(--u) * .7) 0; }
+.rdv .heure { font-size: calc(var(--u) * 3.4); font-weight: 800; min-width: calc(var(--u) * 9); }
+.rdv .titre { font-size: calc(var(--u) * 3.2); font-weight: 500; line-height: 1.2; }
+.rdv .lieu  { display: block; font-size: calc(var(--u) * 2.2); color: var(--discret); font-weight: 400; }
+.vide { font-size: calc(var(--u) * 3); color: var(--discret); margin-top: calc(var(--u) * 3); }
+
+/* Ligne d'état en bas du cadre : dernière mise à jour */
+#statut { margin-top: calc(var(--u) * 1); font-size: calc(var(--u) * 1.9); color: var(--discret); }
+#statut.perime { color: var(--alerte); font-weight: 700; }
+
+/* =====================================================================
+   4. COLONNE DROITE : HEURE, DATE, BOUTONS
+   ===================================================================== */
+#droite { display: flex; flex-direction: column; min-height: 0; }
+
+#horloge { text-align: center; transition: transform 1s; }
+#heure {
+  font-size: calc(var(--u) * 12); font-weight: 800; line-height: 1;
+  color: var(--accent); font-variant-numeric: tabular-nums;
+}
+#date { font-size: calc(var(--u) * 3.4); margin-top: calc(var(--u) * .8); font-weight: 500; }
+
+#message {
+  min-height: calc(var(--u) * 3.4); margin: calc(var(--u) * 1) 0;
+  text-align: center; font-size: calc(var(--u) * 2.4); color: var(--alerte); font-weight: 600;
+}
+
+/* Grille de boutons : 2 colonnes. Un dernier bouton seul occupe toute la largeur. */
+.grille-boutons {
+  flex: 1; min-height: 0;
+  display: grid; grid-template-columns: 1fr 1fr; grid-auto-rows: 1fr;
+  gap: calc(var(--u) * 1.6);
+}
+.grille-boutons > button:last-child:nth-child(odd) { grid-column: span 2; }
+
+.bouton {
+  border: 0; border-radius: calc(var(--u) * 2);
+  font-family: inherit; font-weight: 700; font-size: calc(var(--u) * 3.6);
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  gap: calc(var(--u) * .4);
+}
+.bouton .icone { font-size: calc(var(--u) * 5); line-height: 1; }
+.bouton:active { transform: scale(.97); filter: brightness(1.25); }   /* retour visuel quand on touche */
+
+/* =====================================================================
+   5. VUE « JEUX »
+   ===================================================================== */
+#vue-jeux { flex: 1; display: flex; flex-direction: column; min-height: 0; }
+#vue-jeux[hidden], #vue-accueil[hidden] { display: none; }
+#vue-accueil { flex: 1; display: flex; flex-direction: column; min-height: 0; }
+
+.barre-retour { display: flex; gap: calc(var(--u) * 1.5); margin-bottom: calc(var(--u) * 1.5); }
+.barre-retour .bouton {
+  flex-direction: row; font-size: calc(var(--u) * 3); padding: calc(var(--u) * 1.2) calc(var(--u) * 2.5);
+  background: #2a3240; color: var(--texte);
+}
+#zone-jeu { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+
+/* Jeu de mémoire : grille de 4 x 4 cartes */
+.memo-info { font-size: calc(var(--u) * 3); text-align: center; margin-bottom: calc(var(--u) * 1); min-height: calc(var(--u) * 3.6); }
+.memo-grille { flex: 1; min-height: 0; display: grid; grid-template-columns: repeat(4, 1fr); grid-auto-rows: 1fr; gap: calc(var(--u) * 1); }
+.memo-carte {
+  border: 0; border-radius: calc(var(--u) * 1.2); background: #2a3240; color: var(--texte);
+  font-size: calc(var(--u) * 5.5); font-family: inherit;
+}
+.memo-carte.ouverte { background: #3a4660; }
+.memo-carte.trouvee { background: #1f5d3f; }
+
+/* =====================================================================
+   6. RAPPEL PLEIN ÉCRAN
+   ===================================================================== */
+#alerte {
+  position: fixed; inset: 0; z-index: 50;
+  background: #1c0d0b; color: var(--texte);
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  gap: calc(var(--u) * 2.5); padding: calc(var(--u) * 4); text-align: center;
+}
+#alerte[hidden] { display: none; }
+#alerte .cloche { font-size: calc(var(--u) * 9); line-height: 1; }
+#alerte .quand  { font-size: calc(var(--u) * 4.2); color: var(--accent); font-weight: 700; }
+#alerte .quoi   { font-size: calc(var(--u) * 7.5); font-weight: 800; line-height: 1.1; }
+#alerte .ou     { font-size: calc(var(--u) * 3.2); color: var(--discret); }
+#alerte .bouton { background: var(--accent); color: #1a1405; padding: calc(var(--u) * 2.5) calc(var(--u) * 9); font-size: calc(var(--u) * 5); margin-top: calc(var(--u) * 2); }
+
+/* =====================================================================
+   7. ÉCRANS SPÉCIAUX : configuration manquante, diagnostic
+   ===================================================================== */
+#config-manquante {
+  position: fixed; inset: 0; z-index: 40; background: var(--fond);
+  display: flex; flex-direction: column; justify-content: center; gap: calc(var(--u) * 2);
+  padding: calc(var(--u) * 6); font-size: calc(var(--u) * 2.8);
+}
+#config-manquante[hidden] { display: none; }
+#config-manquante h1 { font-size: calc(var(--u) * 4.5); color: var(--accent); margin: 0; }
+#config-manquante code { background: #1b2230; padding: 0 .3em; border-radius: .3em; user-select: text; }
+
+#diag {
+  position: fixed; left: 0; bottom: 0; right: 0; z-index: 45; max-height: 45%; overflow: auto;
+  background: rgba(0, 0, 0, .92); color: #9fe3b5; font: calc(var(--u) * 1.8) monospace;
+  padding: calc(var(--u) * 1.5); white-space: pre-wrap; user-select: text;
+}
+#diag[hidden] { display: none; }
+</style>
+</head>
+
+<body>
+
+<div class='page' id='page'>
+
+  <!-- ===== COLONNE GAUCHE : agenda ===== -->
+  <section id='agenda'>
+    <h2>Mes rendez-vous</h2>
+    <div id='prochain' hidden></div>
+    <div id='liste'></div>
+    <!-- 5 touches rapides sur cette ligne ouvrent le panneau de diagnostic -->
+    <div id='statut'>Chargement…</div>
+  </section>
+
+  <!-- ===== COLONNE DROITE : heure, date, boutons ===== -->
+  <section id='droite'>
+    <div id='horloge'>
+      <div id='heure'>--:--</div>
+      <div id='date'></div>
+    </div>
+    <div id='message'></div>
+
+    <div id='vue-accueil'>
+      <div class='grille-boutons' id='boutons'></div>
+    </div>
+
+    <div id='vue-jeux' hidden>
+      <div class='barre-retour'>
+        <button class='bouton' id='retour'>◀ Retour</button>
+        <button class='bouton' id='rejouer'>🔄 Rejouer</button>
+      </div>
+      <div id='zone-jeu'></div>
+    </div>
+  </section>
+</div>
+
+<!-- Rappel plein écran (caché tant qu'il n'y a rien à rappeler) -->
+<div id='alerte' hidden>
+  <div class='cloche'>🔔</div>
+  <div class='quand' id='alerte-quand'></div>
+  <div class='quoi' id='alerte-quoi'></div>
+  <div class='ou' id='alerte-ou'></div>
+  <button class='bouton' id='alerte-ok'>J’ai vu</button>
+</div>
+
+<!-- Écran affiché si l'adresse de départ ne contient pas id= et cle= -->
+<div id='config-manquante' hidden>
+  <h1>Agenda introuvable</h1>
+  <div>La page n’arrive pas à lire l’agenda. Vérifiez l’adresse de départ : <code>?id=…&amp;cle=…</code> (relais Google) ou le fichier <code>agenda.json</code> (serveur).</div>
+  <div>Voir le guide, partie « Relier l’agenda ». Touchez 5 fois la ligne d’état pour le diagnostic.</div>
+</div>
+
+<div id='diag' hidden></div>
+
+
+<script>
+'use strict';
+
+const VERSION = '1.2 (23 octobre 2026)';
+
+/* =====================================================================
+   1. RÉGLAGES  (c'est la partie à modifier le plus souvent)
+   ===================================================================== */
+const CONFIG = {
+  langue: 'fr-FR',
+
+  /* ---- Agenda ---- */
+  rafraichirAgendaMin: 5,     // l'agenda est relu toutes les N minutes
+  agendaPerimeApresMin: 180,  // sans mise à jour réussie depuis N minutes : avertissement rouge
+  nbJoursAffiches: 7,         // on n'affiche que les N prochains jours
+  nbRdvMax: 6,                // nombre maximal de rendez-vous affichés (au-delà, on les masque)
+  bandeauProchainMin: 180,    // le bandeau « prochain rendez-vous » apparaît N minutes avant
+
+  /* ---- Rappels ---- */
+  rappelsMinutes: [60, 10],   // rappels avant chaque rendez-vous, en minutes. Ex. : [120, 30]
+  repeterRappelSec: 60,       // tant que « J'ai vu » n'est pas touché, on répète la voix toutes les N secondes
+  repeterRappelMax: 5,        // ... au maximum N fois
+  fermerRappelApresMin: 15,   // le rappel se ferme seul N minutes après l'heure du rendez-vous.
+                              // C'est aussi la limite de « rattrapage » : un rappel manqué (tablette éteinte)
+                              // est encore annoncé si le rendez-vous a commencé depuis moins de N minutes.
+                              // Astuce : 0 dans rappelsMinutes (ex. [60, 10, 0]) ajoute un rappel « C'est l'heure ».
+
+  /* ---- Présence (caméra avant de la tablette) ----
+     Quand quelqu'un passe devant la tablette pendant un rappel, la voix s'arrête.
+     La caméra sert uniquement à détecter un mouvement : aucune image n'est enregistrée par cette page. */
+  presence: {
+    actif: true,              // false = désactive toute la détection
+    arreterVoix: true,        // un passage devant la tablette arrête la voix et ses répétitions
+    fermerAlerte: false,      // true = le passage ferme aussi l'écran de rappel (comme « J'ai vu »)
+    delaiGraceSec: 6,         // les N premières secondes d'un rappel, le mouvement est ignoré
+                              // (le temps que le message démarre, et que l'écran qui s'allume ne déclenche rien)
+    cameraNavigateur: true,   // sans Fully : tente de détecter le mouvement avec la caméra via le navigateur (à tester)
+    seuilCamera: 10,          // sensibilité de cette détection : plus petit = plus sensible (essayez 6 à 20)
+  },
+
+  /* ---- Écran ---- */
+  nuit: { debut: 22, fin: 7, luminosite: 0.25 },  // mode nuit : de 22 h à 7 h, luminosité à 25 %
+  rechargerPageA: 4,          // heure (0-23) du rechargement quotidien : récupère les mises à jour de la page
+  retourAccueilApresMin: 3,   // la vue « Jeux » revient seule à l'accueil après N minutes sans toucher l'écran
+
+  /* ---- Boutons de l'accueil ----
+     Chaque bouton est une ligne. Pour en ajouter, copiez une ligne et changez-la.
+       nom    : texte affiché
+       icone  : un emoji
+       fond   : couleur du bouton ; texte : couleur du texte
+       type   : 'app'  → ouvre une application Android
+                'vue'  → ouvre un écran de cette page (cible = 'jeux')
+                'web'  → ouvre une adresse internet dans le navigateur de la tablette (cible = l'adresse)
+       cible  : (type 'app') nom interne de l'appli, utilisé avec Fully Kiosk Browser
+       lien   : (type 'app') adresse spéciale de l'appli, utilisée avec FreeKiosk (ex. 'whatsapp://').
+                Laissez '' si l'appli n'en a pas : voir le guide.
+     L'ordre de la liste = l'ordre à l'écran.
+     Tablette Wi-Fi seule (SM-T720) : pas de SMS ni d'appels normaux, d'où l'absence de « Messages » et « Téléphone ».
+     Pour appeler : WhatsApp. */
+  boutons: [
+    { nom: 'WhatsApp',    icone: '📱', fond: '#158f46', texte: '#ffffff', type: 'app', cible: 'com.whatsapp',               lien: 'whatsapp://' },
+    { nom: 'Mail Orange', icone: '✉️', fond: '#ff7900', texte: '#111111', type: 'app', cible: 'A_REMPLIR',                  lien: 'mailto:' },   // à compléter : voir le guide
+    { nom: 'Photos',      icone: '🖼️', fond: '#1f6fd1', texte: '#ffffff', type: 'app', cible: 'com.sec.android.gallery3d', lien: '' },
+    { nom: 'Jeux',        icone: '🎲', fond: '#b3306a', texte: '#ffffff', type: 'vue', cible: 'jeux' },
+  ],
+};
+
+/* =====================================================================
+   2. OUTILS GÉNÉRAUX
+   ===================================================================== */
+
+// Raccourci : récupère un élément de la page par son identifiant.
+const $ = (id) => document.getElementById(id);
+
+// Crée un élément HTML avec une classe et un texte.
+// On utilise textContent (jamais innerHTML) : un titre de rendez-vous ne peut donc pas casser la page.
+function el(balise, classe, texte) {
+  const e = document.createElement(balise);
+  if (classe) e.className = classe;
+  if (texte !== undefined) e.textContent = texte;
+  return e;
+}
+
+// Mémoire du navigateur (localStorage), protégée : si elle est indisponible, la page continue de fonctionner.
+const stockage = {
+  lire(cle, defaut) {
+    try {
+      const v = localStorage.getItem('tab_' + cle);
+      return v === null ? defaut : JSON.parse(v);
+    } catch (e) { return defaut; }
+  },
+  ecrire(cle, valeur) {
+    try { localStorage.setItem('tab_' + cle, JSON.stringify(valeur)); } catch (e) { /* tant pis */ }
+  },
+};
+
+// Début de la journée (00:00) d'un instant donné, en millisecondes.
+function debutDuJour(ms) {
+  const d = new Date(ms);
+  d.setHours(0, 0, 0, 0);
+  return d.getTime();
+}
+
+// « 14:30 »
+function formaterHeure(ms) {
+  return new Date(ms).toLocaleTimeString(CONFIG.langue, { hour: '2-digit', minute: '2-digit' });
+}
+
+// « Aujourd’hui », « Demain » ou « Jeudi 24 octobre ».
+function libelleJour(msJour, maintenant) {
+  const ecart = Math.round((msJour - debutDuJour(maintenant)) / 86400000);
+  if (ecart === 0) return 'Aujourd’hui';
+  if (ecart === 1) return 'Demain';
+  const t = new Date(msJour).toLocaleDateString(CONFIG.langue, { weekday: 'long', day: 'numeric', month: 'long' });
+  return t.charAt(0).toUpperCase() + t.slice(1);
+}
+
+// Durée lisible à voix haute : 45 → « 45 minutes », 90 → « 1 heure 30 minutes ».
+function dureeParlee(minutes) {
+  if (minutes < 60) return minutes + (minutes > 1 ? ' minutes' : ' minute');
+  const h = Math.floor(minutes / 60), m = minutes % 60;
+  return h + (h > 1 ? ' heures' : ' heure') + (m ? ' ' + m + (m > 1 ? ' minutes' : ' minute') : '');
+}
+
+// Heure lisible à voix haute : « 14 heures 30 ».
+function heureParlee(ms) {
+  const d = new Date(ms);
+  const m = d.getMinutes();
+  return d.getHours() + ' heures' + (m ? ' ' + m : '');
+}
+
+/* =====================================================================
+   3. LIEN AVEC FULLY KIOSK
+   ---------------------------------------------------------------------
+   Fully ajoute à la page un objet « fully » (si « JavaScript Interface »
+   est activé dans ses réglages). Hors de Fully (test sur un ordinateur),
+   il n'existe pas : tout continue de fonctionner, sans les fonctions Fully.
+   ===================================================================== */
+const Fully = {
+  present() { return typeof window.fully === 'object' && window.fully !== null; },
+
+  // Appelle une fonction de Fully sans jamais faire planter la page.
+  appeler(nom, ...arguments_) {
+    try {
+      if (this.present() && typeof window.fully[nom] === 'function') return window.fully[nom](...arguments_);
+    } catch (e) { diag('Erreur Fully.' + nom + ' : ' + e); }
+    return undefined;
+  },
+
+  ouvrirApplication(nomInterne) { this.appeler('startApplication', nomInterne); },
+  allumerEcran()                { this.appeler('turnScreenOn'); },
+  mettreAuPremierPlan()         { this.appeler('bringToForeground'); },
+  parler(texte)                 { this.appeler('textToSpeech', texte, 'fr_FR'); },
+  arreterVoix()                 { this.appeler('stopTextToSpeech'); },
+};
+
+/* Couche commune : la page fonctionne aussi avec FreeKiosk (ou dans un simple navigateur).
+   FreeKiosk n'a pas d'objet « fully » : pour ouvrir une appli, la page suit un lien spécial (b.lien),
+   et l'appli doit être déclarée « managed app » dans FreeKiosk (voir le guide). */
+const Kiosque = {
+  nom() { return Fully.present() ? 'Fully Kiosk Browser' : 'autre (FreeKiosk, navigateur…)'; },
+
+  // Renvoie true si une ouverture a été tentée.
+  ouvrirApplication(b) {
+    if (Fully.present() && b.cible && b.cible !== 'A_REMPLIR') { Fully.ouvrirApplication(b.cible); return true; }
+    if (!Fully.present() && b.lien) { location.href = b.lien; return true; }
+    return false;
+  },
+
+  // Dit une phrase à voix haute : voix de Fully, sinon voix du navigateur, sinon simple bip.
+  parler(texte) {
+    if (Fully.present()) { Fully.parler(texte); return; }
+    try {
+      if (window.speechSynthesis && window.SpeechSynthesisUtterance) {
+        const u = new SpeechSynthesisUtterance(texte);
+        u.lang = 'fr-FR';
+        window.speechSynthesis.cancel();
+        window.speechSynthesis.speak(u);
+        return;
+      }
+    } catch (e) { diag('Voix du navigateur : ' + e); }
+    bip();
+  },
+
+  // Coupe la phrase en cours.
+  arreterVoix() {
+    if (Fully.present()) { Fully.arreterVoix(); return; }
+    try { if (window.speechSynthesis) window.speechSynthesis.cancel(); } catch (e) { /* rien à couper */ }
+  },
+};
+
+/* =====================================================================
+   4. ÉTAT DE LA PAGE ET RÉGLAGES D'ACCÈS
+   ===================================================================== */
+const etat = {
+  acces: null,         // { mode:'jsonp', id, cle } (relais Google) ou { mode:'json', url } (fichier agenda.json)
+  evenements: [],      // rendez-vous connus (copie gardée en mémoire)
+  majLe: 0,            // instant de la dernière lecture réussie
+  derniereErreur: '',  // dernier message d'erreur (pour le diagnostic)
+  vue: 'accueil',      // 'accueil' ou 'jeux'
+  dernierContact: Date.now(),  // dernier toucher de l'écran
+  presence: 'inactive',        // état de la détection de présence (pour le diagnostic)
+  dernierePresence: 0,         // dernier mouvement détecté devant la tablette
+};
+
+// Lit l'adresse de départ :
+//   ?id=…&cle=…   → relais Google Apps Script
+//   ?json=ADRESSE → fichier agenda.json à cette adresse
+//   (rien)        → fichier agenda.json placé à côté de cette page
+// Ce qui est lu est mémorisé : un rechargement sans paramètres reprend les mêmes réglages.
+function lireAcces() {
+  const p = new URLSearchParams(location.search);
+  if (p.get('id') && p.get('cle')) stockage.ecrire('acces', { mode: 'jsonp', id: p.get('id'), cle: p.get('cle') });
+  else if (p.get('json'))          stockage.ecrire('acces', { mode: 'json', url: p.get('json') });
+  return stockage.lire('acces', { mode: 'json', url: 'agenda.json' });
+}
+
+/* =====================================================================
+   5. AGENDA : LECTURE
+   ---------------------------------------------------------------------
+   Deux sources possibles, même format de réponse :
+     { ok:true, genere:<instant>, evenements:[ {id,titre,debut,fin,journee,lieu,note}, … ] }
+   a) Relais Google Apps Script (technique « JSONP » : évite les blocages de sécurité du navigateur,
+      sans connexion Google sur la tablette).
+   b) Fichier agenda.json lu avec fetch (serveur à vous, même adresse que la page).
+   ===================================================================== */
+
+// Traite une réponse reçue (quelle que soit la source).
+function appliquerReponse(reponse) {
+  if (reponse && reponse.ok && Array.isArray(reponse.evenements)) {
+    const maintenant = Date.now();
+    etat.evenements = reponse.evenements;
+    // Instant de fabrication des données (si la source est en panne, l'âge réel s'affiche).
+    etat.majLe = (reponse.genere && reponse.genere <= maintenant + 60000) ? reponse.genere : maintenant;
+    etat.derniereErreur = '';
+    stockage.ecrire('agenda', { majLe: etat.majLe, evenements: etat.evenements });  // copie de secours
+    $('config-manquante').hidden = true;
+    diag('Lecture agenda : ' + etat.evenements.length + ' rendez-vous');
+    afficherTout(maintenant);
+  } else {
+    echecLecture(reponse && reponse.erreur ? reponse.erreur : 'réponse invalide');
+  }
+}
+
+function echecLecture(message) {
+  etat.derniereErreur = message;
+  diag('Lecture agenda : échec (' + message + ')');
+  if (!etat.majLe) $('config-manquante').hidden = false;   // rien à afficher du tout : on explique
+  afficherTout(Date.now());
+}
+
+function chargerAgenda() {
+  if (!etat.acces) return;
+  if (etat.acces.mode === 'json') chargerJson(); else chargerJsonp();
+}
+
+// Source b) : fichier agenda.json
+function chargerJson() {
+  const url = etat.acces.url + (etat.acces.url.indexOf('?') < 0 ? '?' : '&') + 't=' + Date.now();  // contourne le cache
+  const controle = (typeof AbortController === 'function') ? new AbortController() : null;
+  const delai = setTimeout(() => { if (controle) controle.abort(); }, 25000);
+  fetch(url, { cache: 'no-store', signal: controle ? controle.signal : undefined })
+    .then((r) => { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
+    .then(appliquerReponse)
+    .catch((e) => echecLecture(String((e && e.message) || e)))
+    .then(() => clearTimeout(delai));
+}
+
+// Source a) : relais Google Apps Script
+function chargerJsonp() {
+  const nomFonction = 'recevoirAgenda_' + Date.now();
+  const script = document.createElement('script');
+  let termine = false;
+
+  const nettoyer = () => {
+    termine = true;
+    clearTimeout(delai);
+    delete window[nomFonction];
+    if (script.parentNode) script.parentNode.removeChild(script);
+  };
+  const echec = (message) => { if (termine) return; nettoyer(); echecLecture(message); };
+  const delai = setTimeout(() => echec('délai dépassé'), 25000);
+
+  window[nomFonction] = function (reponse) {
+    if (termine) return;
+    nettoyer();
+    appliquerReponse(reponse);
+  };
+
+  script.onerror = () => echec('connexion impossible');
+  script.src = 'https://script.google.com/macros/s/' + encodeURIComponent(etat.acces.id) +
+               '/exec?callback=' + nomFonction + '&cle=' + encodeURIComponent(etat.acces.cle);
+  document.head.appendChild(script);
+}
+
+/* =====================================================================
+   6. AGENDA : AFFICHAGE
+   ===================================================================== */
+function afficherAgenda(maintenant) {
+  const liste = $('liste');
+  const limite = debutDuJour(maintenant) + CONFIG.nbJoursAffiches * 86400000;
+
+  // On garde les rendez-vous pas encore terminés, dans la période affichée, triés par heure.
+  const aVenir = etat.evenements
+    .filter((ev) => ev.fin > maintenant && ev.debut < limite)
+    .sort((a, b) => a.debut - b.debut)
+    .slice(0, CONFIG.nbRdvMax);
+
+  liste.textContent = '';
+  if (aVenir.length === 0) {
+    liste.appendChild(el('div', 'vide', 'Aucun rendez-vous prévu.'));
+    return;
+  }
+
+  let jourCourant = null;
+  aVenir.forEach((ev) => {
+    // Un rendez-vous commencé hier mais encore en cours est rangé sous « Aujourd'hui ».
+    const jour = debutDuJour(Math.max(ev.debut, debutDuJour(maintenant)));
+    if (jour !== jourCourant) {
+      liste.appendChild(el('div', 'jour', libelleJour(jour, maintenant)));
+      jourCourant = jour;
+    }
+    const ligne = el('div', 'rdv');
+    ligne.appendChild(el('div', 'heure', ev.journee ? 'Journée' : formaterHeure(ev.debut)));
+    const texte = el('div', 'titre', (ev.titre || '(sans titre)') + (ev.repete ? ' 🔁' : ''));   // 🔁 = routine qui se répète
+    if (ev.lieu) texte.appendChild(el('span', 'lieu', ev.lieu));
+    ligne.appendChild(texte);
+    liste.appendChild(ligne);
+  });
+}
+
+// Bandeau jaune : « Dans 45 minutes : Médecin ».
+function afficherProchain(maintenant) {
+  const bandeau = $('prochain');
+  const prochain = etat.evenements
+    .filter((ev) => !ev.journee && ev.debut > maintenant)
+    .sort((a, b) => a.debut - b.debut)[0];
+
+  if (!prochain || prochain.debut - maintenant > CONFIG.bandeauProchainMin * 60000) {
+    bandeau.hidden = true;
+    return;
+  }
+  const minutes = Math.max(1, Math.round((prochain.debut - maintenant) / 60000));
+  bandeau.textContent = 'Dans ' + dureeParlee(minutes) + ' : ' + (prochain.titre || 'rendez-vous');
+  bandeau.hidden = false;
+}
+
+// Ligne d'état : « Mis à jour à 14:32 », en rouge si l'agenda n'a pas pu être lu depuis trop longtemps.
+function afficherStatut(maintenant) {
+  const s = $('statut');
+  if (!etat.majLe) { s.textContent = 'Chargement de l’agenda…'; s.className = ''; return; }
+  const ageMin = Math.round((maintenant - etat.majLe) / 60000);
+  if (ageMin > CONFIG.agendaPerimeApresMin) {
+    s.textContent = 'Agenda non mis à jour depuis ' + dureeParlee(ageMin) + '. Vérifier Internet.';
+    s.className = 'perime';
+  } else {
+    s.textContent = 'Mis à jour à ' + formaterHeure(etat.majLe);
+    s.className = '';
+  }
+}
+
+function afficherTout(maintenant) {
+  afficherAgenda(maintenant);
+  afficherProchain(maintenant);
+  afficherStatut(maintenant);
+}
+
+/* =====================================================================
+   7. RAPPELS
+   ---------------------------------------------------------------------
+   Règles :
+     - Pas de rappel pour les rendez-vous « toute la journée ».
+     - Par défaut : CONFIG.rappelsMinutes (ex. 60 et 10 minutes avant).
+     - Un rendez-vous (ou une routine qui se répète) peut imposer ses propres
+       rappels : écrire dans sa description une ligne « rappel: 120, 30 »
+       (minutes avant), « rappel: 0 » (à l'heure exacte) ou « rappel: aucun ».
+     - Si plusieurs rappels sont arrivés en même temps (tablette éteinte
+       un moment), un seul s'affiche : le plus proche du rendez-vous.
+   ===================================================================== */
+
+// Minutes de rappel applicables à un rendez-vous.
+function minutesDeRappel(ev) {
+  const note = ev.note || '';
+  if (/rappel\s*:\s*(aucun|non)/i.test(note)) return [];
+  const m = /rappel\s*:\s*([0-9][0-9\s,;]*)/i.exec(note);
+  if (m) {
+    const liste = m[1].split(/[\s,;]+/).filter((x) => x !== '').map(Number).filter((n) => n >= 0 && n <= 7 * 24 * 60);
+    if (liste.length) return liste;
+  }
+  return CONFIG.rappelsMinutes;
+}
+
+// Fonction « pure » (ne touche ni à l'écran ni à la mémoire) : renvoie les rappels à déclencher maintenant.
+// dejaVus = { 'idDuRdv|minutes': instant } : rappels déjà déclenchés.
+function rappelsADeclencher(evenements, maintenant, dejaVus) {
+  const resultat = [];
+  const fenetre = CONFIG.fermerRappelApresMin * 60000;   // un rdv commencé depuis plus longtemps n'est plus rappelé
+  evenements.forEach((ev) => {
+    if (ev.journee || maintenant >= ev.debut + fenetre) return;
+    const atteints = minutesDeRappel(ev).filter((m) => maintenant >= ev.debut - m * 60000);
+    if (atteints.length === 0) return;
+    const plusProche = Math.min.apply(null, atteints);
+    if (dejaVus[ev.id + '|' + plusProche]) return;
+    resultat.push({
+      ev: ev,
+      cles: atteints.map((m) => ev.id + '|' + m),   // tous les rappels atteints seront marqués « vus »
+    });
+  });
+  return resultat;
+}
+
+// Textes d'un rappel, pour l'écran et pour la voix. Fonction « pure » (testable).
+function phraseRappel(ev, maintenant) {
+  const titre = ev.titre || 'Rendez-vous';
+  const ecart = Math.round((ev.debut - maintenant) / 60000);   // minutes avant le début (négatif = déjà commencé)
+  if (ecart > 0) {
+    return { ecran: 'À ' + formaterHeure(ev.debut) + ' (dans ' + dureeParlee(ecart) + ')',
+             voix: 'Rappel. ' + titre + ', à ' + heureParlee(ev.debut) + ', dans ' + dureeParlee(ecart) + '.' };
+  }
+  if (ecart >= -1) {
+    return { ecran: 'C’est l’heure', voix: 'Rappel. ' + titre + '. C’est l’heure.' };
+  }
+  return { ecran: 'Commencé depuis ' + dureeParlee(-ecart),
+           voix: 'Rappel. ' + titre + '. Commencé depuis ' + dureeParlee(-ecart) + '.' };
+}
+
+const alertes = { file: [], courante: null, repetitions: 0, derniereVoix: 0, debutAffichage: 0 };
+
+function verifierRappels(maintenant) {
+  // 1. Nouveaux rappels → file d'attente
+  const vus = stockage.lire('rappelsVus', {});
+  rappelsADeclencher(etat.evenements, maintenant, vus).forEach((r) => {
+    r.cles.forEach((c) => { vus[c] = maintenant; });
+    alertes.file.push(r);
+  });
+  Object.keys(vus).forEach((c) => { if (maintenant - vus[c] > 3 * 86400000) delete vus[c]; });  // ménage
+  stockage.ecrire('rappelsVus', vus);
+
+  // 2. Affiche le prochain rappel s'il n'y en a pas déjà un à l'écran
+  if (!alertes.courante && alertes.file.length) afficherAlerte(alertes.file.shift(), maintenant);
+
+  // 3. Rappel affiché : répète la voix, ou ferme le rappel s'il est trop ancien
+  const c = alertes.courante;
+  if (c) {
+    if (maintenant > c.ev.debut + CONFIG.fermerRappelApresMin * 60000) { fermerAlerte(); return; }
+    if (alertes.repetitions < CONFIG.repeterRappelMax &&
+        maintenant - alertes.derniereVoix >= CONFIG.repeterRappelSec * 1000) {
+      annoncerAlerte(c, maintenant);
+    }
+  }
+}
+
+function afficherAlerte(r, maintenant) {
+  alertes.courante = r;
+  alertes.repetitions = 0;
+  alertes.debutAffichage = maintenant;
+  $('alerte-quand').textContent = phraseRappel(r.ev, maintenant).ecran;
+  $('alerte-quoi').textContent = r.ev.titre || 'Rendez-vous';
+  $('alerte-ou').textContent = r.ev.lieu || '';
+  $('alerte').hidden = false;
+  Fully.allumerEcran();
+  Fully.mettreAuPremierPlan();
+  annoncerAlerte(r, maintenant);
+}
+
+// Dit le rappel à voix haute (ou fait un bip si la voix de Fully n'est pas disponible).
+function annoncerAlerte(r, maintenant) {
+  alertes.repetitions += 1;
+  alertes.derniereVoix = maintenant;
+  Kiosque.parler(phraseRappel(r.ev, maintenant).voix);
+}
+
+function fermerAlerte() {
+  alertes.courante = null;
+  $('alerte').hidden = true;
+  Kiosque.arreterVoix();   // coupe la phrase en cours si on touche « J'ai vu »
+}
+
+/* =====================================================================
+   7 bis. PRÉSENCE : un passage devant la tablette arrête la voix
+   ---------------------------------------------------------------------
+   Avec Fully : « Motion Detection (PLUS) » > « Enable Visual Motion Detection »
+   doit être activé (la caméra avant détecte le mouvement) ; Fully appelle alors
+   presenceDetectee(). Sans Fully : la page essaie de détecter le mouvement
+   elle-même avec la caméra (CONFIG.presence.cameraNavigateur).
+   ===================================================================== */
+function activerPresence() {
+  if (!CONFIG.presence.actif) { etat.presence = 'désactivée'; return; }
+  if (Fully.present()) {
+    Fully.appeler('startMotionDetection');
+    Fully.appeler('bind', 'onMotion', 'presenceDetectee();');
+    etat.presence = 'Fully (caméra)';
+  } else if (CONFIG.presence.cameraNavigateur) {
+    demarrerCameraPresence();
+  } else {
+    etat.presence = 'inactive';
+  }
+}
+
+// Fonction appelée à chaque mouvement détecté. Son nom figure dans activerPresence : ne pas le changer.
+function presenceDetectee() {
+  const maintenant = Date.now();
+  etat.dernierePresence = maintenant;
+  if (!alertes.courante) return;                                                         // pas de rappel en cours
+  if (maintenant - alertes.debutAffichage < CONFIG.presence.delaiGraceSec * 1000) return;   // trop tôt
+  if (CONFIG.presence.arreterVoix) {
+    Kiosque.arreterVoix();
+    alertes.repetitions = CONFIG.repeterRappelMax;    // plus aucune répétition de la voix
+  }
+  if (CONFIG.presence.fermerAlerte) fermerAlerte();
+}
+
+// Détection de mouvement par la caméra avant, sans Fully : compare deux images minuscules (32 x 24)
+// toutes les 500 ms ; si elles diffèrent plus que le seuil, il y a eu un mouvement.
+function demarrerCameraPresence() {
+  if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) { etat.presence = 'caméra indisponible'; return; }
+  navigator.mediaDevices.getUserMedia({ video: { facingMode: 'user', width: 160, height: 120 }, audio: false })
+    .then((flux) => {
+      const video = document.createElement('video');
+      video.muted = true;
+      video.setAttribute('playsinline', '');
+      video.srcObject = flux;
+      video.play().catch(() => {});
+      const toile = document.createElement('canvas');
+      toile.width = 32; toile.height = 24;
+      const ctx = toile.getContext('2d');
+      let precedente = null;
+      setInterval(() => {
+        if (video.readyState < 2) return;
+        ctx.drawImage(video, 0, 0, 32, 24);
+        const donnees = ctx.getImageData(0, 0, 32, 24).data;
+        if (precedente) {
+          let ecart = 0;
+          for (let i = 0; i < donnees.length; i += 4) ecart += Math.abs(donnees[i] - precedente[i]);   // canal rouge
+          if (ecart / (32 * 24) > CONFIG.presence.seuilCamera) presenceDetectee();
+        }
+        precedente = donnees;
+      }, 500);
+      etat.presence = 'caméra (navigateur)';
+    })
+    .catch((e) => { etat.presence = 'caméra refusée ou absente'; diag('Caméra : ' + e); });
+}
+
+// Bip simple, utilisé seulement hors de Fully.
+function bip() {
+  try {
+    const ctx = new (window.AudioContext || window.webkitAudioContext)();
+    const o = ctx.createOscillator();
+    o.frequency.value = 880;
+    o.connect(ctx.destination);
+    o.start();
+    setTimeout(() => { o.stop(); ctx.close(); }, 400);
+  } catch (e) { /* pas de son possible */ }
+}
+
+/* =====================================================================
+   8. HORLOGE, MODE NUIT, RECHARGEMENT QUOTIDIEN
+   ===================================================================== */
+function majHorloge(maintenant) {
+  const d = new Date(maintenant);
+  $('heure').textContent = formaterHeure(maintenant);
+  const t = d.toLocaleDateString(CONFIG.langue, { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
+  $('date').textContent = t.charAt(0).toUpperCase() + t.slice(1);
+
+  // Petit décalage de l'horloge toutes les minutes : évite qu'une image fixe marque l'écran AMOLED.
+  const decalage = (d.getMinutes() % 6) * 3;
+  $('horloge').style.transform = 'translate(' + decalage + 'px,' + decalage + 'px)';
+}
+
+function majModeNuit(maintenant) {
+  const h = new Date(maintenant).getHours();
+  const { debut, fin, luminosite } = CONFIG.nuit;
+  const nuit = debut > fin ? (h >= debut || h < fin) : (h >= debut && h < fin);   // gère « 22 h → 7 h »
+  document.documentElement.style.setProperty('--luminosite-nuit', String(luminosite));
+  document.body.classList.toggle('nuit', nuit);
+}
+
+// Recharge la page une fois par jour : récupère la dernière version publiée de ce fichier.
+function verifierRechargement(maintenant) {
+  const d = new Date(maintenant);
+  const jour = d.toDateString();
+  if (d.getHours() === CONFIG.rechargerPageA && stockage.lire('rechargeLe', '') !== jour) {
+    stockage.ecrire('rechargeLe', jour);
+    location.reload();
+  }
+}
+
+/* =====================================================================
+   9. BOUTONS ET VUES
+   ===================================================================== */
+let delaiMessage = null;
+
+// Affiche un court message sous la date (6 secondes).
+function message(texte) {
+  $('message').textContent = texte;
+  clearTimeout(delaiMessage);
+  delaiMessage = setTimeout(() => { $('message').textContent = ''; }, 6000);
+}
+
+function lancerBouton(b) {
+  if (b.type === 'vue') { afficherVue(b.cible); return; }
+  if (b.type === 'web') { location.href = b.cible; return; }
+
+  // type 'app'
+  if (!Kiosque.ouvrirApplication(b)) {
+    diag('Bouton « ' + b.nom + ' » : impossible (moteur : ' + Kiosque.nom() + ' ; cible ou lien manquant)');
+    message('Ce bouton ne marche pas pour le moment. Prévenez votre proche.');
+  }
+}
+
+function construireBoutons() {
+  const grille = $('boutons');
+  grille.textContent = '';
+  CONFIG.boutons.forEach((b) => {
+    const bouton = el('button', 'bouton');
+    bouton.style.background = b.fond;
+    bouton.style.color = b.texte;
+    bouton.appendChild(el('span', 'icone', b.icone));
+    bouton.appendChild(el('span', '', b.nom));
+    bouton.addEventListener('click', () => lancerBouton(b));
+    grille.appendChild(bouton);
+  });
+}
+
+function afficherVue(nom) {
+  etat.vue = nom;
+  $('vue-accueil').hidden = (nom !== 'accueil');
+  $('vue-jeux').hidden = (nom !== 'jeux');
+  if (nom === 'jeux') demarrerMemoire($('zone-jeu'));
+}
+
+// Retour automatique à l'accueil si on laisse un jeu ouvert sans y toucher.
+function verifierRetourAccueil(maintenant) {
+  if (etat.vue !== 'accueil' && maintenant - etat.dernierContact > CONFIG.retourAccueilApresMin * 60000) {
+    afficherVue('accueil');
+  }
+}
+
+/* =====================================================================
+   10. JEU : MÉMOIRE (retrouver les paires)
+   ---------------------------------------------------------------------
+   Pour changer les images : modifiez la liste SYMBOLES (8 emoji = 16 cartes).
+   Pour ajouter un autre jeu : écrire une fonction comme demarrerMemoire(zone),
+   puis l'appeler depuis afficherVue().
+   ===================================================================== */
+const SYMBOLES = ['🐶', '🐱', '🐰', '🦊', '🐻', '🐼', '🐸', '🐵'];
+
+// Mélange une liste (méthode de Fisher-Yates).
+function melanger(liste) {
+  const l = liste.slice();
+  for (let i = l.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [l[i], l[j]] = [l[j], l[i]];
+  }
+  return l;
+}
+
+function demarrerMemoire(zone) {
+  const cartes = melanger(SYMBOLES.concat(SYMBOLES));
+  let ouvertes = [];   // cartes retournées en attente de comparaison (0, 1 ou 2)
+  let coups = 0;
+  let trouvees = 0;
+  let verrou = false;  // vrai pendant les 0,9 s où deux cartes différentes restent visibles
+
+  zone.textContent = '';
+  const info = el('div', 'memo-info', 'Touchez deux cartes identiques');
+  const grille = el('div', 'memo-grille');
+  zone.appendChild(info);
+  zone.appendChild(grille);
+
+  cartes.forEach((symbole) => {
+    const carte = el('button', 'memo-carte', '?');
+    carte.addEventListener('click', () => {
+      if (verrou || carte.classList.contains('ouverte') || carte.classList.contains('trouvee')) return;
+      carte.textContent = symbole;
+      carte.classList.add('ouverte');
+      ouvertes.push({ carte: carte, symbole: symbole });
+      if (ouvertes.length < 2) return;
+
+      coups += 1;
+      info.textContent = 'Coups : ' + coups;
+      const [a, b] = ouvertes;
+      if (a.symbole === b.symbole) {                       // paire trouvée
+        [a, b].forEach((x) => { x.carte.classList.remove('ouverte'); x.carte.classList.add('trouvee'); });
+        ouvertes = [];
+        trouvees += 1;
+        if (trouvees === SYMBOLES.length) info.textContent = 'Bravo ! Gagné en ' + coups + ' coups';
+      } else {                                             // pas de paire : on retourne les cartes
+        verrou = true;
+        setTimeout(() => {
+          [a, b].forEach((x) => { x.carte.textContent = '?'; x.carte.classList.remove('ouverte'); });
+          ouvertes = [];
+          verrou = false;
+        }, 900);
+      }
+    });
+    grille.appendChild(carte);
+  });
+}
+
+/* =====================================================================
+   11. DIAGNOSTIC (pour la maintenance)
+   ---------------------------------------------------------------------
+   Ouvrir : touchez 5 fois de suite la ligne « Mis à jour à… » en bas de
+   l'agenda, ou ajoutez &diag=1 à l'adresse de départ.
+   ===================================================================== */
+const journal = [];
+function diag(ligne) {
+  journal.push(new Date().toLocaleTimeString(CONFIG.langue) + '  ' + ligne);
+  if (journal.length > 40) journal.shift();
+  majDiagnostic();
+}
+
+function majDiagnostic() {
+  const panneau = $('diag');
+  if (panneau.hidden) return;
+  const lignes = [
+    'Version de la page : ' + VERSION,
+    'Moteur : ' + Kiosque.nom() + (Fully.present() ? '' : ' (pas d’interface Fully : normal avec FreeKiosk)'),
+    'Détection de présence : ' + etat.presence + (etat.dernierePresence ? ' (dernier mouvement ' + new Date(etat.dernierePresence).toLocaleTimeString(CONFIG.langue) + ')' : ''),
+    'Source de l’agenda : ' + (etat.acces.mode === 'json' ? 'fichier ' + etat.acces.url : 'relais Google'),
+    'Rendez-vous en mémoire : ' + etat.evenements.length,
+    'Dernière lecture réussie : ' + (etat.majLe ? new Date(etat.majLe).toLocaleString(CONFIG.langue) : 'jamais'),
+    'Dernière erreur : ' + (etat.derniereErreur || 'aucune'),
+    'Wi-Fi / réseau : ' + (navigator.onLine ? 'connecté' : 'hors ligne'),
+    '--- journal ---',
+  ].concat(journal.slice().reverse());
+  panneau.textContent = lignes.join('\n');
+}
+
+function basculerDiagnostic() {
+  $('diag').hidden = !$('diag').hidden;
+  majDiagnostic();
+}
+
+/* =====================================================================
+   12. BOUCLE PRINCIPALE ET DÉMARRAGE
+   ===================================================================== */
+
+// Exécutée toutes les 10 secondes (et à chaque retour de la page au premier plan).
+function cycle() {
+  const maintenant = Date.now();
+  majHorloge(maintenant);
+  majModeNuit(maintenant);
+  afficherTout(maintenant);
+  verifierRappels(maintenant);
+  verifierRechargement(maintenant);
+  verifierRetourAccueil(maintenant);
+}
+
+function demarrer() {
+  // Accès à l'agenda
+  etat.acces = lireAcces();
+
+  // Copie de secours de l'agenda (affichée tout de suite, avant la première lecture)
+  const copie = stockage.lire('agenda', null);
+  if (copie && Array.isArray(copie.evenements)) {
+    etat.evenements = copie.evenements;
+    etat.majLe = copie.majLe || 0;
+  }
+
+  // Interface
+  construireBoutons();
+  $('retour').addEventListener('click', () => afficherVue('accueil'));
+  $('rejouer').addEventListener('click', () => demarrerMemoire($('zone-jeu')));
+  $('alerte-ok').addEventListener('click', fermerAlerte);
+
+  // Suivi des touchers (pour le retour automatique à l'accueil)
+  document.addEventListener('pointerdown', () => { etat.dernierContact = Date.now(); });
+
+  // 5 touches rapides sur la ligne d'état : panneau de diagnostic
+  let touches = [];
+  $('statut').addEventListener('click', () => {
+    const t = Date.now();
+    touches = touches.filter((x) => t - x < 3000).concat(t);
+    if (touches.length >= 5) { touches = []; basculerDiagnostic(); }
+  });
+  if (new URLSearchParams(location.search).get('diag') === '1') basculerDiagnostic();
+
+  // Détection de présence (si activée dans CONFIG)
+  activerPresence();
+
+  // Lectures et vérifications régulières
+  chargerAgenda();
+  setInterval(chargerAgenda, CONFIG.rafraichirAgendaMin * 60000);
+  setInterval(cycle, 10000);
+  cycle();
+
+  // Quand la page revient au premier plan ou que le réseau revient : on actualise tout de suite
+  document.addEventListener('visibilitychange', () => { if (!document.hidden) { chargerAgenda(); cycle(); } });
+  window.addEventListener('online', chargerAgenda);
+
+  diag('Page démarrée, version ' + VERSION);
+}
+
+demarrer();
+</script>
+</body>
+</html>
