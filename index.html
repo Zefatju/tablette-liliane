@@ -152,28 +152,18 @@ body.nuit .page { filter: brightness(var(--luminosite-nuit, 0.25)); }
 .bouton:active { transform: scale(.97); filter: brightness(1.25); }   /* retour visuel quand on touche */
 
 /* =====================================================================
-   5. VUE « JEUX »
+   5. PASTILLES « MESSAGES EN ATTENTE » SUR LES BOUTONS
    ===================================================================== */
-#vue-jeux { flex: 1; display: flex; flex-direction: column; min-height: 0; }
-#vue-jeux[hidden], #vue-accueil[hidden] { display: none; }
-#vue-accueil { flex: 1; display: flex; flex-direction: column; min-height: 0; }
-
-.barre-retour { display: flex; gap: calc(var(--u) * 1.5); margin-bottom: calc(var(--u) * 1.5); }
-.barre-retour .bouton {
-  flex-direction: row; font-size: calc(var(--u) * 3); padding: calc(var(--u) * 1.2) calc(var(--u) * 2.5);
-  background: #2a3240; color: var(--texte);
+.bouton { position: relative; }
+.pastille {
+  position: absolute; top: calc(var(--u) * 1.2); right: calc(var(--u) * 1.4);
+  min-width: calc(var(--u) * 6.4); height: calc(var(--u) * 6.4); padding: 0 calc(var(--u) * 1.2);
+  border-radius: calc(var(--u) * 3.2); background: var(--alerte); color: #fff;
+  font-size: calc(var(--u) * 3.6); font-weight: 800; line-height: calc(var(--u) * 6.4); text-align: center;
+  box-shadow: 0 0 0 calc(var(--u) * .5) #000;
 }
-#zone-jeu { flex: 1; min-height: 0; display: flex; flex-direction: column; }
-
-/* Jeu de mémoire : grille de 4 x 4 cartes */
-.memo-info { font-size: calc(var(--u) * 3); text-align: center; margin-bottom: calc(var(--u) * 1); min-height: calc(var(--u) * 3.6); }
-.memo-grille { flex: 1; min-height: 0; display: grid; grid-template-columns: repeat(4, 1fr); grid-auto-rows: 1fr; gap: calc(var(--u) * 1); }
-.memo-carte {
-  border: 0; border-radius: calc(var(--u) * 1.2); background: #2a3240; color: var(--texte);
-  font-size: calc(var(--u) * 5.5); font-family: inherit;
-}
-.memo-carte.ouverte { background: #3a4660; }
-.memo-carte.trouvee { background: #1f5d3f; }
+.pastille[hidden] { display: none; }
+.bouton .attente { font-size: calc(var(--u) * 2.4); font-weight: 600; min-height: calc(var(--u) * 2.8); }
 
 /* =====================================================================
    6. RAPPEL PLEIN ÉCRAN
@@ -233,17 +223,7 @@ body.nuit .page { filter: brightness(var(--luminosite-nuit, 0.25)); }
     </div>
     <div id='message'></div>
 
-    <div id='vue-accueil'>
-      <div class='grille-boutons' id='boutons'></div>
-    </div>
-
-    <div id='vue-jeux' hidden>
-      <div class='barre-retour'>
-        <button class='bouton' id='retour'>◀ Retour</button>
-        <button class='bouton' id='rejouer'>🔄 Rejouer</button>
-      </div>
-      <div id='zone-jeu'></div>
-    </div>
+    <div class='grille-boutons' id='boutons'></div>
   </section>
 </div>
 
@@ -269,7 +249,7 @@ body.nuit .page { filter: brightness(var(--luminosite-nuit, 0.25)); }
 <script>
 'use strict';
 
-const VERSION = '1.2 (23 octobre 2026)';
+const VERSION = '1.3 (26 octobre 2026)';
 
 /* =====================================================================
    1. RÉGLAGES  (c'est la partie à modifier le plus souvent)
@@ -286,8 +266,8 @@ const CONFIG = {
 
   /* ---- Rappels ---- */
   rappelsMinutes: [60, 10],   // rappels avant chaque rendez-vous, en minutes. Ex. : [120, 30]
-  repeterRappelSec: 20,       // tant que « J'ai vu » n'est pas touché, on répète la voix toutes les N secondes
-  repeterRappelMax: 10,        // ... au maximum N fois
+  repeterRappelSec: 60,       // tant que « J'ai vu » n'est pas touché, on répète la voix toutes les N secondes
+  repeterRappelMax: 5,        // ... au maximum N fois
   fermerRappelApresMin: 15,   // le rappel se ferme seul N minutes après l'heure du rendez-vous.
                               // C'est aussi la limite de « rattrapage » : un rappel manqué (tablette éteinte)
                               // est encore annoncé si le rendez-vous a commencé depuis moins de N minutes.
@@ -309,7 +289,21 @@ const CONFIG = {
   /* ---- Écran ---- */
   nuit: { debut: 22, fin: 7, luminosite: 0.25 },  // mode nuit : de 22 h à 7 h, luminosité à 25 %
   rechargerPageA: 4,          // heure (0-23) du rechargement quotidien : récupère les mises à jour de la page
-  retourAccueilApresMin: 3,   // la vue « Jeux » revient seule à l'accueil après N minutes sans toucher l'écran
+
+  /* ---- Messages en attente (pastilles sur les boutons) ----
+     Les nombres arrivent du relais Google : un petit programme sur la tablette les lui envoie (voir le guide).
+     Sans ce programme, aucune pastille ne s'affiche. */
+  compteurs: {
+    actif: true,
+    rafraichirSec: 30,        // lecture rapide des compteurs auprès du relais Google
+    perimeApresMin: 20,       // des compteurs plus vieux sont ignorés (programme d'envoi arrêté ?)
+    annoncerNouveau: true,    // dit « Vous avez 2 nouveaux messages » quand un nombre augmente
+    silenceNuit: true,        // ... sauf pendant la nuit (réglage « nuit » ci-dessus)
+    noms: {                   // textes sous le nom du bouton : [au singulier, au pluriel]
+      sms:  ['nouveau message', 'nouveaux messages'],
+      mail: ['nouveau courrier', 'nouveaux courriers'],
+    },
+  },
 
   /* ---- Boutons de l'accueil ----
      Chaque bouton est une ligne. Pour en ajouter, copiez une ligne et changez-la.
@@ -317,19 +311,21 @@ const CONFIG = {
        icone  : un emoji
        fond   : couleur du bouton ; texte : couleur du texte
        type   : 'app'  → ouvre une application Android
-                'vue'  → ouvre un écran de cette page (cible = 'jeux')
                 'web'  → ouvre une adresse internet dans le navigateur de la tablette (cible = l'adresse)
        cible  : (type 'app') nom interne de l'appli, utilisé avec Fully Kiosk Browser
-       lien   : (type 'app') adresse spéciale de l'appli, utilisée avec FreeKiosk (ex. 'whatsapp://').
+       lien   : (type 'app') adresse spéciale de l'appli, utilisée avec FreeKiosk (ex. 'sms:' ou 'mailto:').
                 Laissez '' si l'appli n'en a pas : voir le guide.
+       compteur      : (facultatif) 'sms' ou 'mail' : affiche la pastille « en attente » sur ce bouton
+       retourApresMin: (facultatif, Fully) demande à Fully de revenir seul à cette page N minutes après l'ouverture
+                       de l'appli (fenêtre « fermée » automatiquement). À tester ; voir aussi le réglage
+                       « Regain Focus After Idle Time » de Fully, décrit dans le guide.
      L'ordre de la liste = l'ordre à l'écran.
-     Tablette Wi-Fi seule (SM-T720) : pas de SMS ni d'appels normaux, d'où l'absence de « Messages » et « Téléphone ».
-     Pour appeler : WhatsApp. */
+     Appels vidéo : Jami (appli libre, appels depuis un ordinateur sans numéro de téléphone).
+     SMS : la tablette est associée à un téléphone Samsung (« Appels/SMS sur les autres appareils »). */
   boutons: [
-    { nom: 'WhatsApp',    icone: '📱', fond: '#158f46', texte: '#ffffff', type: 'app', cible: 'com.whatsapp',               lien: 'whatsapp://' },
-    { nom: 'Mail Orange', icone: '✉️', fond: '#ff7900', texte: '#111111', type: 'app', cible: 'com.orange.mail.fr',                  lien: 'mailto:' },   // à compléter : voir le guide
-    { nom: 'Photos',      icone: '🖼️', fond: '#1f6fd1', texte: '#ffffff', type: 'app', cible: 'com.sec.android.gallery3d', lien: '' },
-    { nom: 'Jeux',        icone: '🎲', fond: '#b3306a', texte: '#ffffff', type: 'vue', cible: 'jeux' },
+    { nom: 'Appel vidéo', icone: '📹', fond: '#158f46', texte: '#ffffff', type: 'app', cible: 'cx.ring',                       lien: '' },
+    { nom: 'SMS',         icone: '💬', fond: '#5b4bb7', texte: '#ffffff', type: 'app', cible: 'com.samsung.android.messaging', lien: 'sms:',    compteur: 'sms',  retourApresMin: 5 },
+    { nom: 'Courrier',    icone: '✉️', fond: '#ff7900', texte: '#111111', type: 'app', cible: 'A_REMPLIR',                      lien: 'mailto:', compteur: 'mail', retourApresMin: 5 },   // à compléter : voir le guide
   ],
 };
 
@@ -465,8 +461,8 @@ const etat = {
   evenements: [],      // rendez-vous connus (copie gardée en mémoire)
   majLe: 0,            // instant de la dernière lecture réussie
   derniereErreur: '',  // dernier message d'erreur (pour le diagnostic)
-  vue: 'accueil',      // 'accueil' ou 'jeux'
-  dernierContact: Date.now(),  // dernier toucher de l'écran
+  compteurs: { sms: 0, mail: 0, maj: 0, perime: true },   // messages en attente (voir la section 10)
+  compteursInit: false,        // vrai après la première lecture des compteurs (pas d'annonce vocale avant)
   presence: 'inactive',        // état de la détection de présence (pour le diagnostic)
   dernierePresence: 0,         // dernier mouvement détecté devant la tablette
 };
@@ -504,6 +500,7 @@ function appliquerReponse(reponse) {
     stockage.ecrire('agenda', { majLe: etat.majLe, evenements: etat.evenements });  // copie de secours
     $('config-manquante').hidden = true;
     diag('Lecture agenda : ' + etat.evenements.length + ' rendez-vous');
+    if (reponse.compteurs !== undefined) appliquerCompteurs(reponse.compteurs, maintenant);
     afficherTout(maintenant);
   } else {
     echecLecture(reponse && reponse.erreur ? reponse.erreur : 'réponse invalide');
@@ -534,9 +531,9 @@ function chargerJson() {
     .then(() => clearTimeout(delai));
 }
 
-// Source a) : relais Google Apps Script
-function chargerJsonp() {
-  const nomFonction = 'recevoirAgenda_' + Date.now();
+// Appel du relais Google Apps Script (technique « JSONP »). action : 'agenda' ou 'etat' (compteurs seuls).
+function appelRelais(action, auSucces, auEchec) {
+  const nomFonction = 'recevoirRelais_' + Date.now() + '_' + Math.floor(Math.random() * 1000);
   const script = document.createElement('script');
   let termine = false;
 
@@ -546,19 +543,32 @@ function chargerJsonp() {
     delete window[nomFonction];
     if (script.parentNode) script.parentNode.removeChild(script);
   };
-  const echec = (message) => { if (termine) return; nettoyer(); echecLecture(message); };
+  const echec = (message) => { if (termine) return; nettoyer(); auEchec(message); };
   const delai = setTimeout(() => echec('délai dépassé'), 25000);
 
   window[nomFonction] = function (reponse) {
     if (termine) return;
     nettoyer();
-    appliquerReponse(reponse);
+    auSucces(reponse);
   };
 
   script.onerror = () => echec('connexion impossible');
   script.src = 'https://script.google.com/macros/s/' + encodeURIComponent(etat.acces.id) +
-               '/exec?callback=' + nomFonction + '&cle=' + encodeURIComponent(etat.acces.cle);
+               '/exec?action=' + action + '&callback=' + nomFonction + '&cle=' + encodeURIComponent(etat.acces.cle);
   document.head.appendChild(script);
+}
+
+// Source a) : relais Google Apps Script
+function chargerJsonp() {
+  appelRelais('agenda', appliquerReponse, echecLecture);
+}
+
+// Lecture rapide des compteurs seuls (relais Google uniquement).
+function chargerEtat() {
+  if (!etat.acces || etat.acces.mode !== 'jsonp' || !CONFIG.compteurs.actif) return;
+  appelRelais('etat',
+    (rep) => { if (rep && rep.ok) appliquerCompteurs(rep.compteurs, Date.now()); },
+    (m) => diag('Lecture des compteurs : échec (' + m + ')'));
 }
 
 /* =====================================================================
@@ -835,12 +845,16 @@ function majHorloge(maintenant) {
   $('horloge').style.transform = 'translate(' + decalage + 'px,' + decalage + 'px)';
 }
 
-function majModeNuit(maintenant) {
+// Vrai si l'heure est dans la plage de nuit réglée dans CONFIG.nuit (gère « 22 h → 7 h »).
+function estNuit(maintenant) {
   const h = new Date(maintenant).getHours();
-  const { debut, fin, luminosite } = CONFIG.nuit;
-  const nuit = debut > fin ? (h >= debut || h < fin) : (h >= debut && h < fin);   // gère « 22 h → 7 h »
-  document.documentElement.style.setProperty('--luminosite-nuit', String(luminosite));
-  document.body.classList.toggle('nuit', nuit);
+  const { debut, fin } = CONFIG.nuit;
+  return debut > fin ? (h >= debut || h < fin) : (h >= debut && h < fin);
+}
+
+function majModeNuit(maintenant) {
+  document.documentElement.style.setProperty('--luminosite-nuit', String(CONFIG.nuit.luminosite));
+  document.body.classList.toggle('nuit', estNuit(maintenant));
 }
 
 // Recharge la page une fois par jour : récupère la dernière version publiée de ce fichier.
@@ -866,104 +880,99 @@ function message(texte) {
 }
 
 function lancerBouton(b) {
-  if (b.type === 'vue') { afficherVue(b.cible); return; }
   if (b.type === 'web') { location.href = b.cible; return; }
 
   // type 'app'
   if (!Kiosque.ouvrirApplication(b)) {
     diag('Bouton « ' + b.nom + ' » : impossible (moteur : ' + Kiosque.nom() + ' ; cible ou lien manquant)');
     message('Ce bouton ne marche pas pour le moment. Prévenez votre proche.');
+    return;
   }
+  // « Fermeture » automatique de la fenêtre : Fully revient seul au premier plan après N minutes.
+  if (b.retourApresMin > 0 && Fully.present()) Fully.appeler('bringToForeground', b.retourApresMin * 60000);
 }
 
 function construireBoutons() {
   const grille = $('boutons');
   grille.textContent = '';
-  CONFIG.boutons.forEach((b) => {
+  CONFIG.boutons.forEach((b, i) => {
     const bouton = el('button', 'bouton');
     bouton.style.background = b.fond;
     bouton.style.color = b.texte;
     bouton.appendChild(el('span', 'icone', b.icone));
     bouton.appendChild(el('span', '', b.nom));
+    if (b.compteur) {
+      const pastille = el('span', 'pastille', '0');
+      pastille.id = 'pastille-' + i;
+      pastille.hidden = true;
+      const attente = el('span', 'attente', '');
+      attente.id = 'attente-' + i;
+      bouton.appendChild(attente);
+      bouton.appendChild(pastille);
+    }
     bouton.addEventListener('click', () => lancerBouton(b));
     grille.appendChild(bouton);
   });
 }
 
-function afficherVue(nom) {
-  etat.vue = nom;
-  $('vue-accueil').hidden = (nom !== 'accueil');
-  $('vue-jeux').hidden = (nom !== 'jeux');
-  if (nom === 'jeux') demarrerMemoire($('zone-jeu'));
-}
-
-// Retour automatique à l'accueil si on laisse un jeu ouvert sans y toucher.
-function verifierRetourAccueil(maintenant) {
-  if (etat.vue !== 'accueil' && maintenant - etat.dernierContact > CONFIG.retourAccueilApresMin * 60000) {
-    afficherVue('accueil');
-  }
-}
-
 /* =====================================================================
-   10. JEU : MÉMOIRE (retrouver les paires)
+   10. MESSAGES EN ATTENTE (pastilles sur les boutons)
    ---------------------------------------------------------------------
-   Pour changer les images : modifiez la liste SYMBOLES (8 emoji = 16 cartes).
-   Pour ajouter un autre jeu : écrire une fonction comme demarrerMemoire(zone),
-   puis l'appeler depuis afficherVue().
+   Le relais Google garde deux nombres : SMS et courriers en attente de lecture.
+   Un petit programme sur la tablette (voir le guide) les met à jour ; la page
+   les lit toutes les 30 secondes et les affiche sur les boutons concernés.
    ===================================================================== */
-const SYMBOLES = ['🐶', '🐱', '🐰', '🦊', '🐻', '🐼', '🐸', '🐵'];
 
-// Mélange une liste (méthode de Fisher-Yates).
-function melanger(liste) {
-  const l = liste.slice();
-  for (let i = l.length - 1; i > 0; i--) {
-    const j = Math.floor(Math.random() * (i + 1));
-    [l[i], l[j]] = [l[j], l[i]];
+// Fonction « pure » (testable) : transforme ce que dit le relais en compteurs utilisables.
+// Des compteurs trop vieux (programme d'envoi arrêté) sont ignorés : mieux vaut aucune pastille qu'une fausse.
+function lireCompteurs(brut, maintenant) {
+  const c = { sms: 0, mail: 0, maj: 0, perime: true };
+  if (!brut || typeof brut !== 'object') return c;
+  c.maj = Number(brut.maj) || 0;
+  c.perime = !c.maj || (maintenant - c.maj > CONFIG.compteurs.perimeApresMin * 60000);
+  if (!c.perime) {
+    c.sms = Math.max(0, parseInt(brut.sms, 10) || 0);
+    c.mail = Math.max(0, parseInt(brut.mail, 10) || 0);
   }
-  return l;
+  return c;
 }
 
-function demarrerMemoire(zone) {
-  const cartes = melanger(SYMBOLES.concat(SYMBOLES));
-  let ouvertes = [];   // cartes retournées en attente de comparaison (0, 1 ou 2)
-  let coups = 0;
-  let trouvees = 0;
-  let verrou = false;  // vrai pendant les 0,9 s où deux cartes différentes restent visibles
+// « 2 nouveaux messages » (cle = 'sms' ou 'mail').
+function texteAttente(n, cle) {
+  const noms = CONFIG.compteurs.noms[cle] || ['nouveau', 'nouveaux'];
+  return n + ' ' + (n > 1 ? noms[1] : noms[0]);
+}
 
-  zone.textContent = '';
-  const info = el('div', 'memo-info', 'Touchez deux cartes identiques');
-  const grille = el('div', 'memo-grille');
-  zone.appendChild(info);
-  zone.appendChild(grille);
-
-  cartes.forEach((symbole) => {
-    const carte = el('button', 'memo-carte', '?');
-    carte.addEventListener('click', () => {
-      if (verrou || carte.classList.contains('ouverte') || carte.classList.contains('trouvee')) return;
-      carte.textContent = symbole;
-      carte.classList.add('ouverte');
-      ouvertes.push({ carte: carte, symbole: symbole });
-      if (ouvertes.length < 2) return;
-
-      coups += 1;
-      info.textContent = 'Coups : ' + coups;
-      const [a, b] = ouvertes;
-      if (a.symbole === b.symbole) {                       // paire trouvée
-        [a, b].forEach((x) => { x.carte.classList.remove('ouverte'); x.carte.classList.add('trouvee'); });
-        ouvertes = [];
-        trouvees += 1;
-        if (trouvees === SYMBOLES.length) info.textContent = 'Bravo ! Gagné en ' + coups + ' coups';
-      } else {                                             // pas de paire : on retourne les cartes
-        verrou = true;
-        setTimeout(() => {
-          [a, b].forEach((x) => { x.carte.textContent = '?'; x.carte.classList.remove('ouverte'); });
-          ouvertes = [];
-          verrou = false;
-        }, 900);
-      }
-    });
-    grille.appendChild(carte);
+// Met à jour les pastilles de tous les boutons qui ont un « compteur ».
+function afficherCompteurs() {
+  CONFIG.boutons.forEach((b, i) => {
+    if (!b.compteur) return;
+    const n = etat.compteurs[b.compteur] || 0;
+    const pastille = $('pastille-' + i), attente = $('attente-' + i);
+    if (!pastille || !attente) return;
+    pastille.hidden = (n === 0);
+    pastille.textContent = String(n);
+    attente.textContent = n ? texteAttente(n, b.compteur) : '';
   });
+}
+
+// Dit « Vous avez 2 nouveaux messages » quand un nombre augmente (jamais pendant un rappel, ni la nuit si demandé).
+function annoncerNouveaux(avant, apres, maintenant) {
+  if (!CONFIG.compteurs.annoncerNouveau || alertes.courante) return;
+  if (CONFIG.compteurs.silenceNuit && estNuit(maintenant)) return;
+  const morceaux = [];
+  ['sms', 'mail'].forEach((cle) => { if (apres[cle] > avant[cle]) morceaux.push(texteAttente(apres[cle], cle)); });
+  if (morceaux.length) Kiosque.parler('Vous avez ' + morceaux.join(' et ') + '.');
+}
+
+function appliquerCompteurs(brut, maintenant) {
+  if (!CONFIG.compteurs.actif) return;
+  const avant = etat.compteurs;
+  const apres = lireCompteurs(brut, maintenant);
+  etat.compteurs = apres;
+  afficherCompteurs();
+  if (etat.compteursInit) annoncerNouveaux(avant, apres, maintenant);   // pas d'annonce à la toute première lecture
+  etat.compteursInit = true;
 }
 
 /* =====================================================================
@@ -986,6 +995,8 @@ function majDiagnostic() {
     'Version de la page : ' + VERSION,
     'Moteur : ' + Kiosque.nom() + (Fully.present() ? '' : ' (pas d’interface Fully : normal avec FreeKiosk)'),
     'Détection de présence : ' + etat.presence + (etat.dernierePresence ? ' (dernier mouvement ' + new Date(etat.dernierePresence).toLocaleTimeString(CONFIG.langue) + ')' : ''),
+    'Messages en attente : SMS ' + etat.compteurs.sms + ', courrier ' + etat.compteurs.mail +
+      (etat.compteurs.perime ? ' (pas de données récentes : programme d’envoi absent ou arrêté)' : ' (mis à jour à ' + new Date(etat.compteurs.maj).toLocaleTimeString(CONFIG.langue) + ')'),
     'Source de l’agenda : ' + (etat.acces.mode === 'json' ? 'fichier ' + etat.acces.url : 'relais Google'),
     'Rendez-vous en mémoire : ' + etat.evenements.length,
     'Dernière lecture réussie : ' + (etat.majLe ? new Date(etat.majLe).toLocaleString(CONFIG.langue) : 'jamais'),
@@ -1013,7 +1024,6 @@ function cycle() {
   afficherTout(maintenant);
   verifierRappels(maintenant);
   verifierRechargement(maintenant);
-  verifierRetourAccueil(maintenant);
 }
 
 function demarrer() {
@@ -1029,12 +1039,7 @@ function demarrer() {
 
   // Interface
   construireBoutons();
-  $('retour').addEventListener('click', () => afficherVue('accueil'));
-  $('rejouer').addEventListener('click', () => demarrerMemoire($('zone-jeu')));
   $('alerte-ok').addEventListener('click', fermerAlerte);
-
-  // Suivi des touchers (pour le retour automatique à l'accueil)
-  document.addEventListener('pointerdown', () => { etat.dernierContact = Date.now(); });
 
   // 5 touches rapides sur la ligne d'état : panneau de diagnostic
   let touches = [];
@@ -1051,6 +1056,7 @@ function demarrer() {
   // Lectures et vérifications régulières
   chargerAgenda();
   setInterval(chargerAgenda, CONFIG.rafraichirAgendaMin * 60000);
+  setInterval(chargerEtat, CONFIG.compteurs.rafraichirSec * 1000);
   setInterval(cycle, 10000);
   cycle();
 
