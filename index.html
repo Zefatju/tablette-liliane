@@ -426,7 +426,7 @@ const Kiosque = {
 
   // Renvoie true si une ouverture a été tentée.
   ouvrirApplication(b) {
-    if (Fully.present() && b.cible && b.cible !== 'com.orange.mail.fr') { Fully.ouvrirApplication(b.cible); return true; }
+    if (Fully.present() && b.cible && b.cible !== com.orange.mail.fr) { Fully.ouvrirApplication(b.cible); return true; }
     if (!Fully.present() && b.lien) { location.href = b.lien; return true; }
     return false;
   },
