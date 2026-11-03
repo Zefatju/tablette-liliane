@@ -249,7 +249,7 @@ body.nuit .page { filter: brightness(var(--luminosite-nuit, 0.25)); }
 <script>
 'use strict';
 
-const VERSION = '1.3 (26 octobre 2026)';
+const VERSION = '1.4 (28 octobre 2026)';
 
 /* =====================================================================
    1. RÉGLAGES  (c'est la partie à modifier le plus souvent)
@@ -316,16 +316,18 @@ const CONFIG = {
        lien   : (type 'app') adresse spéciale de l'appli, utilisée avec FreeKiosk (ex. 'sms:' ou 'mailto:').
                 Laissez '' si l'appli n'en a pas : voir le guide.
        compteur      : (facultatif) 'sms' ou 'mail' : affiche la pastille « en attente » sur ce bouton
-       retourApresMin: (facultatif, Fully) demande à Fully de revenir seul à cette page N minutes après l'ouverture
-                       de l'appli (fenêtre « fermée » automatiquement). À tester ; voir aussi le réglage
-                       « Regain Focus After Idle Time » de Fully, décrit dans le guide.
+       retourApresMin: (facultatif, EXPÉRIMENTAL, Fully) demande à Fully de revenir seul à cette page N minutes après
+                       l'ouverture de l'appli. Désactivé par défaut : en version 1.3 il pouvait ramener Fully tout de suite
+                       au premier plan, et le bouton semblait ne rien faire. Préférez le réglage « Regain Focus After
+                       Idle Time » de Fully, décrit dans le guide.
      L'ordre de la liste = l'ordre à l'écran.
-     Appels vidéo : Jami (appli libre, appels depuis un ordinateur sans numéro de téléphone).
+     Appels vidéo : Element (appli libre, protocole Matrix) : un compte gratuit, sans numéro de téléphone,
+     et un ordinateur suffit pour appeler la tablette.
      SMS : la tablette est associée à un téléphone Samsung (« Appels/SMS sur les autres appareils »). */
   boutons: [
-    { nom: 'Appel vidéo', icone: '📹', fond: '#158f46', texte: '#ffffff', type: 'app', cible: 'cx.ring',                       lien: '' },
-    { nom: 'SMS',         icone: '💬', fond: '#5b4bb7', texte: '#ffffff', type: 'app', cible: 'com.samsung.android.messaging', lien: 'sms:',    compteur: 'sms',  retourApresMin: 5 },
-    { nom: 'Courrier',    icone: '✉️', fond: '#ff7900', texte: '#111111', type: 'app', cible: 'A_REMPLIR',                      lien: 'mailto:', compteur: 'mail', retourApresMin: 5 },   // à compléter : voir le guide
+    { nom: 'Appel vidéo', icone: '📹', fond: '#158f46', texte: '#ffffff', type: 'app', cible: 'im.vector.app',                lien: '' },
+    { nom: 'SMS',         icone: '💬', fond: '#5b4bb7', texte: '#ffffff', type: 'app', cible: 'com.samsung.android.messaging', lien: 'sms:',    compteur: 'sms' },
+    { nom: 'Courrier',    icone: '✉️', fond: '#ff7900', texte: '#111111', type: 'app', cible: 'A_REMPLIR',                      lien: 'mailto:', compteur: 'mail' },   // à compléter : voir le guide
   ],
 };
 
@@ -426,7 +428,7 @@ const Kiosque = {
 
   // Renvoie true si une ouverture a été tentée.
   ouvrirApplication(b) {
-    if (Fully.present() && b.cible && b.cible !== com.orange.mail.fr) { Fully.ouvrirApplication(b.cible); return true; }
+    if (Fully.present() && b.cible && b.cible !== 'A_REMPLIR') { Fully.ouvrirApplication(b.cible); return true; }
     if (!Fully.present() && b.lien) { location.href = b.lien; return true; }
     return false;
   },
@@ -463,6 +465,9 @@ const etat = {
   derniereErreur: '',  // dernier message d'erreur (pour le diagnostic)
   compteurs: { sms: 0, mail: 0, maj: 0, perime: true },   // messages en attente (voir la section 10)
   compteursInit: false,        // vrai après la première lecture des compteurs (pas d'annonce vocale avant)
+  masqueLe: 0,                 // dernier instant où la page a été cachée (une autre appli est passée devant)
+  dernierBouton: null,         // { nom, cible, le, resultat } : dernier bouton touché (pour le diagnostic)
+  versionRelais: '',           // version du relais Google, si elle l'indique
   presence: 'inactive',        // état de la détection de présence (pour le diagnostic)
   dernierePresence: 0,         // dernier mouvement détecté devant la tablette
 };
@@ -500,6 +505,7 @@ function appliquerReponse(reponse) {
     stockage.ecrire('agenda', { majLe: etat.majLe, evenements: etat.evenements });  // copie de secours
     $('config-manquante').hidden = true;
     diag('Lecture agenda : ' + etat.evenements.length + ' rendez-vous');
+    if (reponse.version) etat.versionRelais = reponse.version;
     if (reponse.compteurs !== undefined) appliquerCompteurs(reponse.compteurs, maintenant);
     afficherTout(maintenant);
   } else {
@@ -883,12 +889,33 @@ function lancerBouton(b) {
   if (b.type === 'web') { location.href = b.cible; return; }
 
   // type 'app'
+  const t0 = Date.now();
+  etat.dernierBouton = { nom: b.nom, cible: b.cible || b.lien || '', le: t0, resultat: 'demandé' };
+
   if (!Kiosque.ouvrirApplication(b)) {
+    etat.dernierBouton.resultat = 'impossible (cible ou lien manquant, ou interface Fully absente)';
     diag('Bouton « ' + b.nom + ' » : impossible (moteur : ' + Kiosque.nom() + ' ; cible ou lien manquant)');
     message('Ce bouton ne marche pas pour le moment. Prévenez votre proche.');
     return;
   }
-  // « Fermeture » automatique de la fenêtre : Fully revient seul au premier plan après N minutes.
+  diag('Bouton « ' + b.nom + ' » : ouverture demandée (' + (b.cible || b.lien) + ')');
+  message('Ouverture de « ' + b.nom + ' »…');
+
+  // Contrôle : si la page est encore à l'écran 3 secondes plus tard, l'appli ne s'est pas ouverte.
+  // (Quand une autre appli passe devant, la page est mise en pause : ce contrôle ne s'exécute alors
+  //  qu'à son retour, bien plus tard que prévu, et on le sait.)
+  setTimeout(() => {
+    const ecoule = Date.now() - t0;
+    if (ecoule > 4500 || etat.masqueLe >= t0) {
+      etat.dernierBouton.resultat = 'appli ouverte (la page est passée au second plan)';
+      return;
+    }
+    etat.dernierBouton.resultat = 'NON OUVERTE : la page est restée à l’écran';
+    diag('Bouton « ' + b.nom + ' » : l’appli ne s’est pas ouverte (nom interne faux, appli absente, ou Fully l’a refusée)');
+    message('« ' + b.nom + ' » ne s’est pas ouverte. Prévenez votre proche.');
+  }, 3000);
+
+  // Retour automatique programmé par Fully (EXPÉRIMENTAL, désactivé par défaut : voir retourApresMin).
   if (b.retourApresMin > 0 && Fully.present()) Fully.appeler('bringToForeground', b.retourApresMin * 60000);
 }
 
@@ -995,6 +1022,10 @@ function majDiagnostic() {
     'Version de la page : ' + VERSION,
     'Moteur : ' + Kiosque.nom() + (Fully.present() ? '' : ' (pas d’interface Fully : normal avec FreeKiosk)'),
     'Détection de présence : ' + etat.presence + (etat.dernierePresence ? ' (dernier mouvement ' + new Date(etat.dernierePresence).toLocaleTimeString(CONFIG.langue) + ')' : ''),
+    'Dernier bouton : ' + (etat.dernierBouton
+      ? etat.dernierBouton.nom + ' → ' + etat.dernierBouton.cible + ' (' + etat.dernierBouton.resultat + ', à ' + new Date(etat.dernierBouton.le).toLocaleTimeString(CONFIG.langue) + ')'
+      : 'aucun'),
+    'Version du relais Google : ' + (etat.versionRelais || 'inconnue (ancienne version du relais ?)'),
     'Messages en attente : SMS ' + etat.compteurs.sms + ', courrier ' + etat.compteurs.mail +
       (etat.compteurs.perime ? ' (pas de données récentes : programme d’envoi absent ou arrêté)' : ' (mis à jour à ' + new Date(etat.compteurs.maj).toLocaleTimeString(CONFIG.langue) + ')'),
     'Source de l’agenda : ' + (etat.acces.mode === 'json' ? 'fichier ' + etat.acces.url : 'relais Google'),
@@ -1061,7 +1092,10 @@ function demarrer() {
   cycle();
 
   // Quand la page revient au premier plan ou que le réseau revient : on actualise tout de suite
-  document.addEventListener('visibilitychange', () => { if (!document.hidden) { chargerAgenda(); cycle(); } });
+  document.addEventListener('visibilitychange', () => {
+    if (document.hidden) { etat.masqueLe = Date.now(); return; }   // une autre appli est passée devant
+    chargerAgenda(); cycle();
+  });
   window.addEventListener('online', chargerAgenda);
 
   diag('Page démarrée, version ' + VERSION);
