@@ -127,7 +127,7 @@ body.nuit .page { filter: brightness(var(--luminosite-nuit, 0.25)); }
   font-size: calc(var(--u) * 12); font-weight: 800; line-height: 1;
   color: var(--accent); font-variant-numeric: tabular-nums;
 }
-#date { font-size: calc(var(--u) * 3.4); margin-top: calc(var(--u) * .8); font-weight: 500; }
+#date { font-size: calc(var(--u) * 5); margin-top: calc(var(--u) * .8); font-weight: 800; line-height: 1.1; }   /* date : grande et en gras */
 
 #message {
   min-height: calc(var(--u) * 3.4); margin: calc(var(--u) * 1) 0;
@@ -180,6 +180,38 @@ body.nuit .page { filter: brightness(var(--luminosite-nuit, 0.25)); }
 #alerte .quoi   { font-size: calc(var(--u) * 7.5); font-weight: 800; line-height: 1.1; }
 #alerte .ou     { font-size: calc(var(--u) * 3.2); color: var(--discret); }
 #alerte .bouton { background: var(--accent); color: #1a1405; padding: calc(var(--u) * 2.5) calc(var(--u) * 9); font-size: calc(var(--u) * 5); margin-top: calc(var(--u) * 2); }
+
+/* =====================================================================
+   6 bis. FENÊTRE DES MESSAGES (SMS, courrier) ET APPEL VIDÉO ENTRANT
+   ===================================================================== */
+#fenetre {
+  position: fixed; inset: 0; z-index: 35; background: var(--fond);
+  display: flex; flex-direction: column; padding: calc(var(--u) * 2.5); gap: calc(var(--u) * 1.6);
+}
+#fenetre[hidden] { display: none; }
+#fenetre h2 { margin: 0; font-size: calc(var(--u) * 4); color: var(--accent); }
+#fenetre-liste { flex: 1; min-height: 0; overflow: hidden; }
+.elem { padding: calc(var(--u) * 1.2) 0; border-bottom: calc(var(--u) * .15) solid var(--trait); }
+.elem-nom { font-size: calc(var(--u) * 3.6); font-weight: 800; }
+.elem-texte { font-size: calc(var(--u) * 3.2); line-height: 1.25; margin-top: calc(var(--u) * .3); }
+.elem-vide { font-size: calc(var(--u) * 3.4); color: var(--discret); margin-top: calc(var(--u) * 2); }
+.fenetre-actions { display: flex; gap: calc(var(--u) * 2); }
+.fenetre-actions .bouton { flex: 1; flex-direction: row; font-size: calc(var(--u) * 3.6); padding: calc(var(--u) * 2.2) calc(var(--u) * 2); }
+#fenetre-fermer { background: #2a3240; color: var(--texte); }
+#fenetre-ouvrir { background: var(--accent); color: #1a1405; }
+
+#appel {
+  position: fixed; inset: 0; z-index: 55; background: #07210f; color: var(--texte);
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  gap: calc(var(--u) * 2.5); padding: calc(var(--u) * 4); text-align: center;
+}
+#appel[hidden] { display: none; }
+#appel .cloche { font-size: calc(var(--u) * 9); line-height: 1; }
+#appel .quand { font-size: calc(var(--u) * 4.2); color: var(--accent); font-weight: 700; }
+#appel .quoi { font-size: calc(var(--u) * 8); font-weight: 800; line-height: 1.1; }
+#appel .bouton { padding: calc(var(--u) * 2.5) calc(var(--u) * 9); font-size: calc(var(--u) * 5); }
+#appel-repondre { background: #1fb957; color: #04210f; }
+#appel-plus-tard { background: #2a3240; color: var(--texte); font-size: calc(var(--u) * 3.2); padding: calc(var(--u) * 1.4) calc(var(--u) * 5); }
 
 /* =====================================================================
    7. ÉCRANS SPÉCIAUX : configuration manquante, diagnostic
@@ -236,6 +268,25 @@ body.nuit .page { filter: brightness(var(--luminosite-nuit, 0.25)); }
   <button class='bouton' id='alerte-ok'>J’ai vu</button>
 </div>
 
+<!-- Fenêtre des messages (SMS ou courrier) : s'ouvre quand on touche le bouton -->
+<div id='fenetre' hidden>
+  <h2 id='fenetre-titre'></h2>
+  <div id='fenetre-liste'></div>
+  <div class='fenetre-actions'>
+    <button class='bouton' id='fenetre-fermer'>◀ Retour au tableau de bord</button>
+    <button class='bouton' id='fenetre-ouvrir'>Ouvrir l’appli</button>
+  </div>
+</div>
+
+<!-- Appel vidéo entrant -->
+<div id='appel' hidden>
+  <div class='cloche'>📹</div>
+  <div class='quand'>Appel vidéo</div>
+  <div class='quoi' id='appel-nom'></div>
+  <button class='bouton' id='appel-repondre'>Répondre</button>
+  <button class='bouton' id='appel-plus-tard'>Plus tard</button>
+</div>
+
 <!-- Écran affiché si l'adresse de départ ne contient pas id= et cle= -->
 <div id='config-manquante' hidden>
   <h1>Agenda introuvable</h1>
@@ -249,7 +300,7 @@ body.nuit .page { filter: brightness(var(--luminosite-nuit, 0.25)); }
 <script>
 'use strict';
 
-const VERSION = '1.4 (28 octobre 2026)';
+const VERSION = '1.5 (29 octobre 2026)';
 
 /* =====================================================================
    1. RÉGLAGES  (c'est la partie à modifier le plus souvent)
@@ -302,7 +353,30 @@ const CONFIG = {
     noms: {                   // textes sous le nom du bouton : [au singulier, au pluriel]
       sms:  ['nouveau message', 'nouveaux messages'],
       mail: ['nouveau courrier', 'nouveaux courriers'],
+      visio: ['appel vidéo', 'appels vidéo'],
     },
+  },
+
+  /* ---- Messages reçus du programme de la tablette (compteurs_notifications.py) ----
+     Le programme prévient la page par une « diffusion » Android envoyée à Fully : quelques secondes de délai
+     au lieu de plusieurs dizaines avec le relais Google. */
+  local: {
+    action: 'fr.tablette.ETAT',  // doit être identique à ACTION_DIFFUSION dans le programme
+    perimeApresSec: 120,         // des données locales plus vieilles sont ignorées (programme arrêté ?)
+  },
+
+  /* ---- Fenêtre des messages : s'ouvre quand on touche SMS ou Courrier (bouton avec « fenetre: ... ») ---- */
+  fenetres: {
+    actif: true,                 // false = les boutons ouvrent directement l'appli
+    fermerApresMin: 3,           // la fenêtre se ferme seule après N minutes sans toucher l'écran
+    marquerLuALaFermeture: true, // à la fermeture, les messages vus ne comptent plus dans la pastille
+  },
+
+  /* ---- Appel vidéo entrant (notification d'Element) ---- */
+  appelVideo: {
+    actif: true,
+    repeterVoixSec: 8,           // la voix répète « Appel vidéo de ... » toutes les N secondes
+    dureeMaxSec: 90,             // l'écran d'appel se ferme seul après N secondes
   },
 
   /* ---- Boutons de l'accueil ----
@@ -315,7 +389,9 @@ const CONFIG = {
        cible  : (type 'app') nom interne de l'appli, utilisé avec Fully Kiosk Browser
        lien   : (type 'app') adresse spéciale de l'appli, utilisée avec FreeKiosk (ex. 'sms:' ou 'mailto:').
                 Laissez '' si l'appli n'en a pas : voir le guide.
-       compteur      : (facultatif) 'sms' ou 'mail' : affiche la pastille « en attente » sur ce bouton
+       compteur      : (facultatif) 'sms', 'mail' ou 'visio' : affiche la pastille « en attente » sur ce bouton
+       fenetre       : (facultatif) 'sms' ou 'mail' : toucher le bouton ouvre une fenêtre avec le texte des messages,
+                       au lieu d'ouvrir l'appli (bouton « Ouvrir l'appli » dans la fenêtre)
        retourApresMin: (facultatif, EXPÉRIMENTAL, Fully) demande à Fully de revenir seul à cette page N minutes après
                        l'ouverture de l'appli. Désactivé par défaut : en version 1.3 il pouvait ramener Fully tout de suite
                        au premier plan, et le bouton semblait ne rien faire. Préférez le réglage « Regain Focus After
@@ -325,9 +401,9 @@ const CONFIG = {
      et un ordinateur suffit pour appeler la tablette.
      SMS : la tablette est associée à un téléphone Samsung (« Appels/SMS sur les autres appareils »). */
   boutons: [
-    { nom: 'Appel vidéo', icone: '📹', fond: '#158f46', texte: '#ffffff', type: 'app', cible: 'io.element.android.x',                lien: '' },
-    { nom: 'SMS',         icone: '💬', fond: '#5b4bb7', texte: '#ffffff', type: 'app', cible: 'com.samsung.android.messaging', lien: 'sms:',    compteur: 'sms' },
-    { nom: 'Courrier',    icone: '✉️', fond: '#ff7900', texte: '#111111', type: 'app', cible: 'com.orange.mail.fr',                      lien: 'mailto:', compteur: 'mail' },   // à compléter : voir le guide
+    { nom: 'Appel vidéo', icone: '📹', fond: '#158f46', texte: '#ffffff', type: 'app', cible: 'io.element.android.x',                lien: '',          compteur: 'visio' },
+    { nom: 'SMS',         icone: '💬', fond: '#5b4bb7', texte: '#ffffff', type: 'app', cible: 'com.samsung.android.messaging', lien: 'sms:',    compteur: 'sms',  fenetre: 'sms' },
+    { nom: 'Courrier',    icone: '✉️', fond: '#ff7900', texte: '#111111', type: 'app', cible: 'com.orange.mail.fr',                      lien: 'mailto:', compteur: 'mail', fenetre: 'mail' },   // à compléter : voir le guide
   ],
 };
 
@@ -463,8 +539,18 @@ const etat = {
   evenements: [],      // rendez-vous connus (copie gardée en mémoire)
   majLe: 0,            // instant de la dernière lecture réussie
   derniereErreur: '',  // dernier message d'erreur (pour le diagnostic)
-  compteurs: { sms: 0, mail: 0, maj: 0, perime: true },   // messages en attente (voir la section 10)
-  compteursInit: false,        // vrai après la première lecture des compteurs (pas d'annonce vocale avant)
+  compteurs: { sms: 0, mail: 0, visio: 0, maj: 0, perime: true },   // nombres affichés sur les boutons (voir la section 10)
+  compteursRelais: { sms: 0, mail: 0, maj: 0, perime: true },       // nombres reçus du relais Google (secours)
+  local: null,                 // dernier état reçu du programme de la tablette : { sms, mail, visio, appel, maj }
+  localLe: 0,                  // instant de réception de cet état
+  dernierBrut: '',             // dernier texte brut reçu (pour le diagnostic)
+  vus: stockage.lire('vus', {}),   // clés des notifications déjà lues dans nos fenêtres
+  fenetre: null,               // fenêtre de messages ouverte : { type, bouton, ouverteLe, vus }
+  appelVu: '',                 // clé du dernier appel entrant déjà affiché
+  appelAffiche: false,         // écran d'appel entrant visible
+  appelDebut: 0,               // instant où il est apparu
+  appelVoix: 0,                // instant de la dernière annonce vocale
+  sourceCompteurs: '',         // d'où viennent les nombres affichés : 'local', 'relais' ou 'aucune' (pas d'annonce quand elle change)
   masqueLe: 0,                 // dernier instant où la page a été cachée (une autre appli est passée devant)
   dernierBouton: null,         // { nom, cible, le, resultat } : dernier bouton touché (pour le diagnostic)
   versionRelais: '',           // version du relais Google, si elle l'indique
@@ -885,8 +971,12 @@ function message(texte) {
   delaiMessage = setTimeout(() => { $('message').textContent = ''; }, 6000);
 }
 
-function lancerBouton(b) {
+function lancerBouton(b, forcerApp) {
   if (b.type === 'web') { location.href = b.cible; return; }
+
+  // Bouton à fenêtre (SMS, courrier) : on montre les messages dans la page, sans quitter le tableau de bord.
+  // Sans données récentes du programme de la tablette, ou avec forcerApp, on ouvre l'appli.
+  if (!forcerApp && b.fenetre && CONFIG.fenetres.actif && localFrais(Date.now())) { ouvrirFenetre(b); return; }
 
   // type 'app'
   const t0 = Date.now();
@@ -992,14 +1082,202 @@ function annoncerNouveaux(avant, apres, maintenant) {
   if (morceaux.length) Kiosque.parler('Vous avez ' + morceaux.join(' et ') + '.');
 }
 
+// Nombres reçus du relais Google (secours : sans le programme de la tablette, ou hors de Fully).
 function appliquerCompteurs(brut, maintenant) {
   if (!CONFIG.compteurs.actif) return;
+  etat.compteursRelais = lireCompteurs(brut, maintenant);
+  recalculerCompteurs(maintenant);
+}
+
+// Vrai si l'état reçu du programme de la tablette est assez récent pour être cru.
+function localFrais(maintenant) {
+  return !!etat.local && (maintenant - etat.localLe) <= CONFIG.local.perimeApresSec * 1000;
+}
+
+// Éléments pas encore « vus » dans nos fenêtres.
+function nonVus(liste) {
+  return (liste || []).filter((i) => !etat.vus[i.k]);
+}
+
+// Choisit la source des nombres (programme de la tablette si frais, sinon relais Google), met à jour les pastilles
+// et annonce à voix haute ce qui vient d'arriver. Pas d'annonce à la toute première lecture d'une source :
+// sinon, à chaque redémarrage de la page, les messages déjà en attente seraient annoncés comme nouveaux.
+function recalculerCompteurs(maintenant) {
+  if (!CONFIG.compteurs.actif) return;
   const avant = etat.compteurs;
-  const apres = lireCompteurs(brut, maintenant);
+  let apres, source;
+  if (localFrais(maintenant)) {
+    source = 'local';
+    apres = { sms: nonVus(etat.local.sms).length, mail: nonVus(etat.local.mail).length,
+              visio: nonVus(etat.local.visio).length, maj: etat.localLe, perime: false };
+  } else if (!etat.compteursRelais.perime) {
+    source = 'relais';
+    apres = Object.assign({ visio: 0 }, etat.compteursRelais);
+  } else {
+    source = 'aucune';
+    apres = { sms: 0, mail: 0, visio: 0, maj: 0, perime: true };
+  }
   etat.compteurs = apres;
   afficherCompteurs();
-  if (etat.compteursInit) annoncerNouveaux(avant, apres, maintenant);   // pas d'annonce à la toute première lecture
-  etat.compteursInit = true;
+  if (source !== 'aucune' && source === etat.sourceCompteurs) annoncerNouveaux(avant, apres, maintenant);
+  etat.sourceCompteurs = source;
+}
+
+/* ---------------------------------------------------------------------
+   Diffusion reçue du programme de la tablette (compteurs_notifications.py)
+   --------------------------------------------------------------------- */
+
+// Fonction « pure » : extrait l'objet JSON d'une diffusion. Le programme envoie un extra « d » contenant du JSON
+// encodé en base64 « url-safe ». Le texte reçu de Fully peut avoir plusieurs formes (Bundle[{d=...}], {"d":"..."}…) :
+// on cherche simplement d= ou d: suivi du texte.
+function decoderDiffusion(extras) {
+  const m = /(?:^|[^A-Za-z0-9_])d["']?\s*[=:]\s*["']?([A-Za-z0-9_-]{8,})/.exec(String(extras || ''));
+  if (!m) return null;
+  try {
+    let b64 = m[1].replace(/-/g, '+').replace(/_/g, '/');
+    while (b64.length % 4) b64 += '=';
+    const octets = Uint8Array.from(atob(b64), (c) => c.charCodeAt(0));
+    const objet = JSON.parse(new TextDecoder('utf-8').decode(octets));
+    return (objet && typeof objet === 'object') ? objet : null;
+  } catch (e) { return null; }
+}
+
+// Appelée par Fully à chaque diffusion reçue. Le nom doit rester celui-ci : il figure dans demarrer().
+function recevoirDiffusion(action, extras) {
+  etat.dernierBrut = String(extras || '').slice(0, 160);
+  const objet = decoderDiffusion(extras);
+  if (!objet) { diag('Diffusion reçue mais illisible : ' + etat.dernierBrut); return; }
+  appliquerLocal(objet, Date.now());
+}
+
+function appliquerLocal(objet, maintenant) {
+  const liste = (x) => Array.isArray(x)
+    ? x.filter((i) => i && typeof i === 'object').slice(0, 20).map((i) => ({ k: String(i.k || ''), n: String(i.n || ''), t: String(i.t || '') }))
+    : [];
+  etat.local = {
+    sms: liste(objet.sms), mail: liste(objet.mail), visio: liste(objet.visio),
+    appel: (objet.appel && objet.appel.k) ? { k: String(objet.appel.k), n: String(objet.appel.n || '') } : null,
+    maj: Number(objet.maj) || maintenant,
+  };
+  etat.localLe = maintenant;
+  // Ménage : on oublie les « vus » dont la notification a disparu depuis plus d'un jour.
+  const presentes = {};
+  ['sms', 'mail', 'visio'].forEach((t) => etat.local[t].forEach((i) => { presentes[i.k] = true; }));
+  Object.keys(etat.vus).forEach((k) => { if (!presentes[k] && maintenant - etat.vus[k] > 86400000) delete etat.vus[k]; });
+  stockage.ecrire('vus', etat.vus);
+
+  recalculerCompteurs(maintenant);
+  gererAppelEntrant(maintenant);
+  if (etat.fenetre) rafraichirFenetre();     // une fenêtre ouverte se met à jour en direct
+}
+
+/* ---------------------------------------------------------------------
+   Appel vidéo entrant : écran plein écran, voix, gros bouton vert
+   --------------------------------------------------------------------- */
+function trouverBouton(compteur) {
+  return CONFIG.boutons.filter((b) => b.compteur === compteur)[0] || null;
+}
+
+function gererAppelEntrant(maintenant) {
+  const a = etat.local && etat.local.appel;
+  if (!a) {                                  // plus d'appel : fin de l'appel, ou appel manqué
+    if (etat.appelAffiche) fermerAppel();
+    etat.appelVu = '';
+    return;
+  }
+  if (!CONFIG.appelVideo.actif || a.k === etat.appelVu) return;   // ne pas réafficher le même appel
+  etat.appelVu = a.k;
+  afficherAppel(a, maintenant);
+}
+
+function afficherAppel(a, maintenant) {
+  etat.appelAffiche = true;
+  etat.appelDebut = maintenant;
+  $('appel-nom').textContent = a.n || 'Quelqu’un';
+  $('appel').hidden = false;
+  Fully.allumerEcran();
+  Fully.mettreAuPremierPlan();
+  annoncerAppel(maintenant);
+}
+
+function annoncerAppel(maintenant) {
+  etat.appelVoix = maintenant;
+  const nom = ($('appel-nom').textContent || '').trim();
+  Kiosque.parler('Appel vidéo de ' + nom + '. Touchez le bouton vert pour répondre.');
+}
+
+function fermerAppel() {
+  etat.appelAffiche = false;
+  $('appel').hidden = true;
+  Kiosque.arreterVoix();
+}
+
+// Appelée toutes les 2 secondes : répète la voix, ferme l'écran d'appel après la durée maximale.
+function verifierAppel(maintenant) {
+  if (!etat.appelAffiche) return;
+  if (maintenant - etat.appelDebut > CONFIG.appelVideo.dureeMaxSec * 1000) { fermerAppel(); return; }
+  if (maintenant - etat.appelVoix >= CONFIG.appelVideo.repeterVoixSec * 1000) annoncerAppel(maintenant);
+}
+
+function repondreAppel() {
+  fermerAppel();
+  const b = trouverBouton('visio');
+  if (b) lancerBouton(b, true);
+}
+
+/* ---------------------------------------------------------------------
+   Fenêtre des messages (SMS, courrier)
+   --------------------------------------------------------------------- */
+const TITRES_FENETRE = { sms: 'Messages reçus', mail: 'Courrier reçu' };
+
+function ouvrirFenetre(b) {
+  etat.fenetre = { type: b.fenetre, bouton: b, ouverteLe: Date.now(), vus: [] };
+  $('fenetre-titre').textContent = TITRES_FENETRE[b.fenetre] || b.nom;
+  rafraichirFenetre();
+  $('fenetre').hidden = false;
+}
+
+// Remplit la fenêtre avec les messages en attente (expéditeur en gras, puis le texte).
+function rafraichirFenetre() {
+  const f = etat.fenetre;
+  const liste = $('fenetre-liste');
+  const items = (etat.local && etat.local[f.type]) || [];
+  liste.textContent = '';
+  if (items.length === 0) {
+    liste.appendChild(el('div', 'elem-vide', 'Aucun nouveau message.'));
+  }
+  items.forEach((i) => {
+    const ligne = el('div', 'elem');
+    ligne.appendChild(el('div', 'elem-nom', i.n || 'Sans nom'));
+    if (i.t) ligne.appendChild(el('div', 'elem-texte', i.t));
+    liste.appendChild(ligne);
+  });
+  f.vus = items.map((i) => i.k);
+}
+
+// Ferme la fenêtre (« Retour au tableau de bord »). Les messages affichés ne comptent plus dans la pastille.
+function fermerFenetre() {
+  const f = etat.fenetre;
+  if (!f) return;
+  if (CONFIG.fenetres.marquerLuALaFermeture) {
+    const maintenant = Date.now();
+    f.vus.forEach((k) => { etat.vus[k] = maintenant; });
+    stockage.ecrire('vus', etat.vus);
+  }
+  etat.fenetre = null;
+  $('fenetre').hidden = true;
+  recalculerCompteurs(Date.now());
+}
+
+function ouvrirAppDepuisFenetre() {
+  const b = etat.fenetre && etat.fenetre.bouton;
+  fermerFenetre();
+  if (b) lancerBouton(b, true);
+}
+
+// Ferme la fenêtre toute seule après quelques minutes sans toucher l'écran.
+function verifierFenetre(maintenant) {
+  if (etat.fenetre && maintenant - etat.fenetre.ouverteLe > CONFIG.fenetres.fermerApresMin * 60000) fermerFenetre();
 }
 
 /* =====================================================================
@@ -1026,6 +1304,11 @@ function majDiagnostic() {
       ? etat.dernierBouton.nom + ' → ' + etat.dernierBouton.cible + ' (' + etat.dernierBouton.resultat + ', à ' + new Date(etat.dernierBouton.le).toLocaleTimeString(CONFIG.langue) + ')'
       : 'aucun'),
     'Version du relais Google : ' + (etat.versionRelais || 'inconnue (ancienne version du relais ?)'),
+    'Programme de la tablette (diffusion locale) : ' + (etat.local
+      ? (localFrais(Date.now()) ? 'actif' : 'SILENCIEUX') + ', dernier état à ' + new Date(etat.localLe).toLocaleTimeString(CONFIG.langue) +
+        ' (SMS ' + etat.local.sms.length + ', courrier ' + etat.local.mail.length + ', appels ' + etat.local.visio.length + ')'
+      : 'jamais reçu' + (Fully.present() ? ' : lancer compteurs_notifications.py dans Termux' : ' (hors de Fully : normal)')),
+    'Dernière diffusion brute : ' + (etat.dernierBrut || 'aucune'),
     'Messages en attente : SMS ' + etat.compteurs.sms + ', courrier ' + etat.compteurs.mail +
       (etat.compteurs.perime ? ' (pas de données récentes : programme d’envoi absent ou arrêté)' : ' (mis à jour à ' + new Date(etat.compteurs.maj).toLocaleTimeString(CONFIG.langue) + ')'),
     'Source de l’agenda : ' + (etat.acces.mode === 'json' ? 'fichier ' + etat.acces.url : 'relais Google'),
@@ -1055,6 +1338,8 @@ function cycle() {
   afficherTout(maintenant);
   verifierRappels(maintenant);
   verifierRechargement(maintenant);
+  recalculerCompteurs(maintenant);     // laisse les pastilles s'éteindre si le programme de la tablette s'arrête
+  verifierFenetre(maintenant);
 }
 
 function demarrer() {
@@ -1071,6 +1356,18 @@ function demarrer() {
   // Interface
   construireBoutons();
   $('alerte-ok').addEventListener('click', fermerAlerte);
+  $('fenetre-fermer').addEventListener('click', fermerFenetre);
+  $('fenetre-ouvrir').addEventListener('click', ouvrirAppDepuisFenetre);
+  $('fenetre').addEventListener('pointerdown', () => { if (etat.fenetre) etat.fenetre.ouverteLe = Date.now(); });
+  $('appel-repondre').addEventListener('click', repondreAppel);
+  $('appel-plus-tard').addEventListener('click', fermerAppel);
+
+  // Réception instantanée des messages envoyés par le programme de la tablette (Fully seulement)
+  if (Fully.present()) {
+    Fully.appeler('registerBroadcastReceiver', CONFIG.local.action);
+    Fully.appeler('bind', 'broadcastReceived', 'recevoirDiffusion("$action","$extras");');
+  }
+  setInterval(() => verifierAppel(Date.now()), 2000);
 
   // 5 touches rapides sur la ligne d'état : panneau de diagnostic
   let touches = [];
